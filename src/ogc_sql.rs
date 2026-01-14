@@ -82,3 +82,103 @@ CREATE TABLE gpkg_extensions (
   CONSTRAINT ge_tce UNIQUE (table_name, column_name, extension_name)
 );
 ";
+
+// cf. https://www.geopackage.org/spec140/index.html#extension_rtree
+pub(crate) fn gpkg_rtree_create_sql(table: &str, column: &str) -> String {
+    format!(
+        "CREATE VIRTUAL TABLE rtree_{}_{} USING rtree(id, minx, maxx, miny, maxy);",
+        table, column
+    )
+}
+
+pub(crate) fn gpkg_rtree_load_sql(table: &str, column: &str, id_column: &str) -> String {
+    format!(
+        "INSERT OR REPLACE INTO rtree_{}_{}
+  SELECT {}, ST_MinX({}), ST_MaxX({}), ST_MinY({}), ST_MaxY({})
+  FROM {} WHERE {} NOT NULL AND NOT ST_IsEmpty({});",
+        table,
+        column,
+        id_column,
+        column,
+        column,
+        column,
+        column,
+        table,
+        column,
+        column
+    )
+}
+
+pub(crate) fn gpkg_rtree_triggers_sql(table: &str, column: &str, id_column: &str) -> String {
+    format!(
+        "CREATE TRIGGER rtree_{t}_{c}_insert AFTER INSERT ON {t}
+  WHEN (new.{c} NOT NULL AND NOT ST_IsEmpty(NEW.{c}))
+BEGIN
+  INSERT OR REPLACE INTO rtree_{t}_{c} VALUES (
+    NEW.{i},
+    ST_MinX(NEW.{c}), ST_MaxX(NEW.{c}),
+    ST_MinY(NEW.{c}), ST_MaxY(NEW.{c})
+  );
+END;
+
+CREATE TRIGGER rtree_{t}_{c}_update2 AFTER UPDATE OF {c} ON {t}
+  WHEN OLD.{i} = NEW.{i} AND
+       (NEW.{c} ISNULL OR ST_IsEmpty(NEW.{c}))
+BEGIN
+  DELETE FROM rtree_{t}_{c} WHERE id = OLD.{i};
+END;
+
+CREATE TRIGGER rtree_{t}_{c}_update4 AFTER UPDATE ON {t}
+  WHEN OLD.{i} != NEW.{i} AND
+       (NEW.{c} ISNULL OR ST_IsEmpty(NEW.{c}))
+BEGIN
+  DELETE FROM rtree_{t}_{c} WHERE id IN (OLD.{i}, NEW.{i});
+END;
+
+CREATE TRIGGER rtree_{t}_{c}_update5 AFTER UPDATE ON {t}
+  WHEN OLD.{i} != NEW.{i} AND
+       (NEW.{c} NOTNULL AND NOT ST_IsEmpty(NEW.{c}))
+BEGIN
+  DELETE FROM rtree_{t}_{c} WHERE id = OLD.{i};
+  INSERT OR REPLACE INTO rtree_{t}_{c} VALUES (
+    NEW.{i},
+    ST_MinX(NEW.{c}), ST_MaxX(NEW.{c}),
+    ST_MinY(NEW.{c}), ST_MaxY(NEW.{c})
+  );
+END;
+
+CREATE TRIGGER rtree_{t}_{c}_update6 AFTER UPDATE OF {c} ON {t}
+  WHEN OLD.{i} = NEW.{i} AND
+       (NEW.{c} NOTNULL AND NOT ST_IsEmpty(NEW.{c})) AND
+       (OLD.{c} NOTNULL AND NOT ST_IsEmpty(OLD.{c}))
+BEGIN
+  UPDATE rtree_{t}_{c} SET
+    minx = ST_MinX(NEW.{c}),
+    maxx = ST_MaxX(NEW.{c}),
+    miny = ST_MinY(NEW.{c}),
+    maxy = ST_MaxY(NEW.{c})
+  WHERE id = NEW.{i};
+END;
+
+CREATE TRIGGER rtree_{t}_{c}_update7 AFTER UPDATE OF {c} ON {t}
+  WHEN OLD.{i} = NEW.{i} AND
+       (NEW.{c} NOTNULL AND NOT ST_IsEmpty(NEW.{c})) AND
+       (OLD.{c} ISNULL OR ST_IsEmpty(OLD.{c}))
+BEGIN
+  INSERT INTO rtree_{t}_{c} VALUES (
+    NEW.{i},
+    ST_MinX(NEW.{c}), ST_MaxX(NEW.{c}),
+    ST_MinY(NEW.{c}), ST_MaxY(NEW.{c})
+  );
+END;
+
+CREATE TRIGGER rtree_{t}_{c}_delete AFTER DELETE ON {t}
+  WHEN old.{c} NOT NULL
+BEGIN
+  DELETE FROM rtree_{t}_{c} WHERE id = OLD.{i};
+END;",
+        t = table,
+        c = column,
+        i = id_column
+    )
+}
