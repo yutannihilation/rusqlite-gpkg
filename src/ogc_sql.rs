@@ -112,6 +112,14 @@ pub(crate) fn gpkg_rtree_create_sql(table: &str, geom_column: &str) -> String {
     )
 }
 
+pub(crate) fn gpkg_rtree_drop_sql(table: &str, geom_column: &str) -> String {
+    format!(
+        "DROP TABLE rtree_{t}_{c} USING rtree(id, minx, maxx, miny, maxy);",
+        t = table,
+        c = geom_column,
+    )
+}
+
 pub(crate) fn gpkg_rtree_load_sql(table: &str, geom_column: &str, id_column: &str) -> String {
     format!(
         "INSERT OR REPLACE INTO rtree_{t}_{c}

@@ -4,7 +4,7 @@
 //! while keeping the API shape flexible for future write support.
 
 use crate::error::{GpkgError, Result};
-use crate::ogc_sql::{execute_rtree_sqls, initialize_gpkg};
+use crate::ogc_sql::{execute_rtree_sqls, gpkg_rtree_drop_sql, initialize_gpkg};
 use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, ColumnType};
 
@@ -35,7 +35,14 @@ impl Gpkg {
 
     /// Open a GeoPackage in read-write mode.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        // TODO: validate if the path exists at least. Hopefully, we should check if it's valid as a GeoPackage, but I'm not sure.
+        let path = path.as_ref();
+        if !path.exists() {
+            return Err(GpkgError::Message(format!(
+                "GeoPackage file does not exist: {}",
+                path.display()
+            )));
+        }
+
         let conn = rusqlite::Connection::open(path)?;
         register_spatial_functions(&conn)?;
         Ok(Self {
@@ -46,7 +53,14 @@ impl Gpkg {
 
     /// Create a new GeoPackage
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        // TODO: raise an error if the file already exists
+        let path = path.as_ref();
+        if path.exists() {
+            return Err(GpkgError::Message(format!(
+                "GeoPackage file already exists: {}",
+                path.display()
+            )));
+        }
+
         let conn = rusqlite::Connection::open(path)?;
 
         initialize_gpkg(&conn)?;
@@ -113,6 +127,16 @@ impl Gpkg {
     ) -> Result<GpkgLayer<'a>> {
         if self.read_only {
             return Err(GpkgError::ReadOnly);
+        }
+
+        if self
+            .list_layers()?
+            .iter()
+            .any(|name| name == layer_name)
+        {
+            return Err(GpkgError::Message(format!(
+                "Layer already exists: {layer_name}"
+            )));
         }
 
         let geometry_type_name = match geometry_type {
@@ -195,7 +219,18 @@ VALUES
 
     /// Delete a layer.
     pub fn delete_layer<'a>(&'a self, layer_name: &str) -> Result<()> {
-        todo!()
+        if self.read_only {
+            return Err(GpkgError::ReadOnly);
+        }
+
+        let (geometry_column, _, _, _) = self.get_geometry_column_and_srs_id(layer_name)?;
+
+        self.conn
+            .execute_batch(&gpkg_rtree_drop_sql(layer_name, &geometry_column))?;
+
+        self.conn
+            .execute_batch(&format!(r#"DROP TABLE "{layer_name}""#))?;
+        Ok(())
     }
 
     /// Resolve the table columns (excluding `fid`) and map SQLite types.
