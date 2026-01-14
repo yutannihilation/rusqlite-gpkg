@@ -10,12 +10,24 @@ use wkb::reader::Wkb;
 
 pub struct Gpkg {
     conn: rusqlite::Connection,
+    read_only: bool,
 }
 
 impl Gpkg {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = rusqlite::Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            read_only: true,
+        })
+    }
+
+    pub fn open_rw<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let conn = rusqlite::Connection::open(path)?;
+        Ok(Self {
+            conn,
+            read_only: false,
+        })
     }
 
     pub fn list_layers(&self) -> Result<Vec<String>> {
