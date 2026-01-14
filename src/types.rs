@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::gpkg::GpkgDataSource;
+use crate::reader::GpkgDataSource;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]

@@ -1,16 +1,16 @@
-mod gpkg;
 mod ogc_sql;
+mod reader;
 mod types;
 
 // The data chunk size. This can be obtained via libduckdb_sys::duckdb_vector_size(),
 // but use a fixed value here.
 pub(crate) const VECTOR_SIZE: usize = 2048;
 
-use crate::gpkg::{Gpkg, gpkg_geometry_to_wkb};
+use crate::reader::{GpkgReaderOld, gpkg_geometry_to_wkb};
 use crate::types::ColumnType;
 
 pub fn read_gpkg(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let gpkg = Gpkg::new(path, None)?;
+    let gpkg = GpkgReaderOld::new(path, None)?;
     let sources = gpkg.list_data_sources()?;
 
     for source in sources {
