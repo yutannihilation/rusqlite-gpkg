@@ -9,6 +9,7 @@ pub enum GpkgError {
     UnsupportedGeometryType(String),
     InvalidDimension { z: i8, m: i8 },
     InvalidPropertyCount { expected: usize, got: usize },
+    InvalidGpkgGeometryFlags(u8),
     ReadOnly,
     Message(String),
 }
@@ -24,6 +25,9 @@ impl fmt::Display for GpkgError {
             }
             Self::InvalidPropertyCount { expected, got } => {
                 write!(f, "invalid property count: expected {expected}, got {got}")
+            }
+            Self::InvalidGpkgGeometryFlags(flags) => {
+                write!(f, "invalid gpkg geometry flags: {flags:#04x}")
             }
             Self::ReadOnly => write!(f, "operation not allowed on read-only connection"),
             Self::Message(message) => write!(f, "{message}"),

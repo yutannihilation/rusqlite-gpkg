@@ -552,8 +552,7 @@ pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> Result<Wkb<'a>> {
         0b00000110 => 48, // envelope is [minx, maxx, miny, maxy, minm, maxm], 48 bytes
         0b00001000 => 64, // envelope is [minx, maxx, miny, maxy, minz, maxz, minm, maxm], 64 bytes
         _ => {
-            // invalid
-            return Wkb::try_new(&[]).map_err(GpkgError::from);
+            return Err(GpkgError::InvalidGpkgGeometryFlags(flags));
         }
     };
     let offset = 8 + envelope_size;
