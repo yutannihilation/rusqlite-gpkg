@@ -1,3 +1,8 @@
+//! GeoPackage reader/writer surface backed by rusqlite.
+//!
+//! This module currently focuses on reading layers and features from a GeoPackage,
+//! while keeping the API shape flexible for future write support.
+
 use crate::types::{ColumnSpec, ColumnType};
 
 use rusqlite::{
@@ -8,12 +13,14 @@ use std::path::Path;
 use wkb::error::WkbResult;
 use wkb::reader::Wkb;
 
+/// GeoPackage connection wrapper for reading (and later writing) layers.
 pub struct Gpkg {
     conn: rusqlite::Connection,
     read_only: bool,
 }
 
 impl Gpkg {
+    /// Open a GeoPackage in read-only mode.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = rusqlite::Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         Ok(Self {
@@ -22,6 +29,7 @@ impl Gpkg {
         })
     }
 
+    /// Open a GeoPackage in read-write mode.
     pub fn open_rw<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = rusqlite::Connection::open(path)?;
         Ok(Self {
@@ -30,6 +38,7 @@ impl Gpkg {
         })
     }
 
+    /// List the names of the layers.
     pub fn list_layers(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare("SELECT table_name FROM gpkg_contents")?;
         let layers = stmt
@@ -38,6 +47,7 @@ impl Gpkg {
         Ok(layers)
     }
 
+    /// Load a layer definition and metadata by name.
     pub fn layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
@@ -58,6 +68,7 @@ impl Gpkg {
         })
     }
 
+    /// Resolve the table columns (excluding `fid`) and map SQLite types.
     fn get_column_specs(&self, layer_name: &str) -> Result<Vec<ColumnSpec>> {
         let query = format!(
             "SELECT name, type FROM pragma_table_info('{layer_name}') WHERE name != 'fid'",
@@ -93,6 +104,7 @@ impl Gpkg {
         Ok(result?)
     }
 
+    /// Resolve the geometry column metadata and SRS information for a layer.
     fn get_geometry_column_and_srs_id(
         &self,
         layer_name: &str,
@@ -163,6 +175,7 @@ WHERE table_name = ?
     }
 }
 
+/// A GeoPackage layer with geometry metadata and column specs.
 pub struct GpkgLayer<'a> {
     conn: &'a Gpkg,
     layer_name: String,
@@ -174,14 +187,17 @@ pub struct GpkgLayer<'a> {
 }
 
 impl<'a> GpkgLayer<'a> {
+    /// Return the geometry column name.
     pub fn geometry_column(&self) -> &str {
         &self.geometry_column
     }
 
+    /// Return the non-geometry columns in order.
     pub fn property_columns(&self) -> &[ColumnSpec] {
         &self.other_columns
     }
 
+    /// Iterate over features in the layer in rowid order.
     pub fn features(&self) -> Result<GpkgFeatureIterator> {
         let column_specs = self.conn.get_column_specs(&self.layer_name)?;
         let geometry_index = column_specs
@@ -237,12 +253,14 @@ impl<'a> GpkgLayer<'a> {
     }
 }
 
+/// A single feature with geometry bytes and owned properties.
 pub struct GpkgFeature {
     geometry: Option<Vec<u8>>,
     properties: Vec<Value>,
 }
 
 impl GpkgFeature {
+    /// Decode the geometry column into WKB.
     pub fn geometry(&self) -> Result<Wkb<'_>> {
         let bytes = self.geometry.as_ref().ok_or_else(|| {
             rusqlite::Error::InvalidColumnType(0, "geometry".to_string(), Type::Null)
@@ -251,6 +269,7 @@ impl GpkgFeature {
             .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Blob, Box::new(err)))
     }
 
+    /// Read a property by index using rusqlite's `FromSql` conversion.
     pub fn property<T: FromSql>(&self, idx: usize) -> Result<T> {
         let value = self
             .properties
@@ -275,6 +294,7 @@ impl GpkgFeature {
     }
 }
 
+/// Owned iterator over features.
 pub struct GpkgFeatureIterator {
     features: std::vec::IntoIter<GpkgFeature>,
 }
@@ -287,6 +307,7 @@ impl Iterator for GpkgFeatureIterator {
     }
 }
 
+/// Strip GeoPackage header and envelope bytes to access raw WKB.
 // cf. https://www.geopackage.org/spec140/index.html#gpb_format
 pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> WkbResult<Wkb<'a>> {
     let flags = b[3];
