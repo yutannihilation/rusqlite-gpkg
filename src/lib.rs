@@ -28,6 +28,7 @@ mod error;
 mod gpkg;
 mod sql_functions;
 
+mod conversions;
 mod ogc_sql;
 mod types;
 

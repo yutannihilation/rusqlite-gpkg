@@ -3,10 +3,14 @@
 //! This module currently focuses on reading layers and features from a GeoPackage,
 //! while keeping the API shape flexible for future write support.
 
+use crate::conversions::{
+    column_type_from_str, column_type_to_str, dimension_from_zm, dimension_to_zm,
+    geometry_type_from_str, geometry_type_to_str,
+};
 use crate::error::{GpkgError, Result};
 use crate::ogc_sql::{execute_rtree_sqls, gpkg_rtree_drop_sql, initialize_gpkg};
 use crate::sql_functions::register_spatial_functions;
-use crate::types::{ColumnSpec, ColumnType};
+use crate::types::ColumnSpec;
 
 use geo_traits::GeometryTrait;
 use rusqlite::{
@@ -129,45 +133,20 @@ impl Gpkg {
             return Err(GpkgError::ReadOnly);
         }
 
-        if self
-            .list_layers()?
-            .iter()
-            .any(|name| name == layer_name)
-        {
+        if self.list_layers()?.iter().any(|name| name == layer_name) {
             return Err(GpkgError::Message(format!(
                 "Layer already exists: {layer_name}"
             )));
         }
 
-        let geometry_type_name = match geometry_type {
-            wkb::reader::GeometryType::GeometryCollection => "GEOMETRYCOLLECTION",
-            wkb::reader::GeometryType::Point => "POINT",
-            wkb::reader::GeometryType::LineString => "LINESTRING",
-            wkb::reader::GeometryType::Polygon => "POLYGON",
-            wkb::reader::GeometryType::MultiPoint => "MULTIPOINT",
-            wkb::reader::GeometryType::MultiLineString => "MULTILINESTRING",
-            wkb::reader::GeometryType::MultiPolygon => "MULTIPOLYGON",
-            _ => unreachable!(),
-        };
-
-        let (z, m) = match geometry_dimension {
-            wkb::reader::Dimension::Xy => (0, 0),
-            wkb::reader::Dimension::Xyz => (1, 0),
-            wkb::reader::Dimension::Xym => (0, 1),
-            wkb::reader::Dimension::Xyzm => (1, 1),
-        };
+        let geometry_type_name = geometry_type_to_str(geometry_type);
+        let (z, m) = dimension_to_zm(geometry_dimension);
 
         let mut column_defs = Vec::with_capacity(other_column_specs.len() + 2);
         column_defs.push("fid INTEGER PRIMARY KEY AUTOINCREMENT".to_string());
         column_defs.push(format!(r#""{}" BLOB"#, geometry_column));
         for spec in other_column_specs {
-            let col_type = match spec.column_type {
-                ColumnType::Integer => "INTEGER",
-                ColumnType::Double => "DOUBLE",
-                ColumnType::Varchar => "TEXT",
-                ColumnType::Boolean => "BOOLEAN",
-                ColumnType::Geometry => "GEOMETRY",
-            };
+            let col_type = column_type_to_str(spec.column_type);
             column_defs.push(format!(r#""{}" {col_type}"#, spec.name));
         }
 
@@ -245,22 +224,13 @@ VALUES
             let column_type_str: String = row.get(1)?;
 
             // cf. https://www.geopackage.org/spec140/index.html#_sqlite_container
-            let column_type = match column_type_str.to_uppercase().as_str() {
-                "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "INTEGER" => ColumnType::Integer,
-                "DOUBLE" | "FLOAT" | "REAL" => ColumnType::Double,
-                "TEXT" => ColumnType::Varchar,
-                "BOOLEAN" => ColumnType::Boolean,
-                // cf. https://www.geopackage.org/spec140/index.html#geometry_types
-                "GEOMETRY" | "POINT" | "LINESTRING" | "POLYGON" | "MULTIPOINT"
-                | "MULTILINESTRING" | "MULTIPOLYGON" | "GEOMETRYCOLLECTION" => ColumnType::Geometry,
-                _ => {
-                    return Err(rusqlite::Error::InvalidColumnType(
-                        1,
-                        format!("Unexpected type {}", column_type_str),
-                        rusqlite::types::Type::Text,
-                    ));
-                }
-            };
+            let column_type = column_type_from_str(&column_type_str).ok_or_else(|| {
+                rusqlite::Error::InvalidColumnType(
+                    1,
+                    format!("Unexpected type {}", column_type_str),
+                    rusqlite::types::Type::Text,
+                )
+            })?;
 
             Ok(ColumnSpec { name, column_type })
         })?;
@@ -298,32 +268,8 @@ WHERE table_name = ?
                 ))
             })?;
 
-        let geometry_type = match geometry_type_str.as_str() {
-            "GEOMETRY" => wkb::reader::GeometryType::GeometryCollection,
-            "POINT" => wkb::reader::GeometryType::Point,
-            "LINESTRING" => wkb::reader::GeometryType::LineString,
-            "POLYGON" => wkb::reader::GeometryType::Polygon,
-            "MULTIPOINT" => wkb::reader::GeometryType::MultiPoint,
-            "MULTILINESTRING" => wkb::reader::GeometryType::MultiLineString,
-            "MULTIPOLYGON" => wkb::reader::GeometryType::MultiPolygon,
-            "GEOMETRYCOLLECTION" => wkb::reader::GeometryType::GeometryCollection,
-            _ => return Err(GpkgError::UnsupportedGeometryType(geometry_type_str)),
-        };
-
-        // Note: the spec says z and m are
-        //
-        //   0: z/m values prohibited
-        //   1: z/m values mandatory
-        //   2: z/m values optional
-        //
-        // but I don't know how 2 can be handled
-        let geometry_dimension = match (z, m) {
-            (0, 0) => wkb::reader::Dimension::Xy,
-            (1, 0) => wkb::reader::Dimension::Xyz,
-            (0, 1) => wkb::reader::Dimension::Xym,
-            (1, 1) => wkb::reader::Dimension::Xyzm,
-            (2, _) | (_, 2) | _ => return Err(GpkgError::InvalidDimension { z, m }),
-        };
+        let geometry_type = geometry_type_from_str(&geometry_type_str)?;
+        let geometry_dimension = dimension_from_zm(z, m)?;
 
         Ok((geometry_column, geometry_type, geometry_dimension, srs_id))
     }
