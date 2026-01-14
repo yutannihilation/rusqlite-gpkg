@@ -293,3 +293,63 @@ pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> WkbResult<Wkb<'a>> {
 
     Wkb::try_new(&b[offset..])
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Gpkg;
+    use rusqlite::types::Value;
+    use wkb::reader::GeometryType;
+
+    fn generated_gpkg_path() -> &'static str {
+        "src/test/test_generated.gpkg"
+    }
+
+    fn property_index(columns: &[super::ColumnSpec], name: &str) -> Option<usize> {
+        columns.iter().position(|col| col.name == name)
+    }
+
+    #[test]
+    fn reads_generated_layers_and_counts() -> Result<(), Box<dyn std::error::Error>> {
+        let gpkg = Gpkg::open(generated_gpkg_path())?;
+        let mut layers = gpkg.list_layers()?;
+        layers.sort();
+        assert_eq!(layers, vec!["lines", "points", "polygons"]);
+
+        let points = gpkg.layer("points")?;
+        let lines = gpkg.layer("lines")?;
+        let polygons = gpkg.layer("polygons")?;
+
+        assert_eq!(points.features()?.count(), 5);
+        assert_eq!(lines.features()?.count(), 3);
+        assert_eq!(polygons.features()?.count(), 2);
+
+        Ok(())
+    }
+
+    #[test]
+    fn reads_geometry_and_properties_from_points() -> Result<(), Box<dyn std::error::Error>> {
+        let gpkg = Gpkg::open(generated_gpkg_path())?;
+        let layer = gpkg.layer("points")?;
+        let columns = layer.property_columns();
+
+        let id_idx = property_index(columns, "id").expect("id column");
+        let name_idx = property_index(columns, "name").expect("name column");
+        let active_idx = property_index(columns, "active").expect("active column");
+        let note_idx = property_index(columns, "note").expect("note column");
+
+        let mut iter = layer.features()?;
+        let feature = iter.next().expect("first feature");
+
+        let geom = feature.geometry()?;
+        assert_eq!(geom.geometry_type(), GeometryType::Point);
+
+        assert_eq!(feature.property::<i64>(id_idx)?, 1);
+        assert_eq!(feature.property::<String>(name_idx)?, "alpha");
+        assert_eq!(feature.property::<bool>(active_idx)?, true);
+
+        let note = feature.property::<Value>(note_idx)?;
+        assert_eq!(note, Value::Text("first".to_string()));
+
+        Ok(())
+    }
+}

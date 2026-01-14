@@ -2,3 +2,5 @@
 
 *.gpkg-wal
 *.gpkg-shm
+
+src/test/fixtures

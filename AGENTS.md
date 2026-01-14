@@ -2,17 +2,16 @@
 
 ## Project Structure & Module Organization
 - `src/lib.rs` exposes the library entry point and shared functions (e.g., `read_gpkg`).
-- `src/gpkg.rs` implements core GeoPackage parsing/reading logic.
+- `src/reader` implements core GeoPackage parsing/reading logic.
 - `src/ogc_sql.rs` holds GeoPackage SQL schema constants.
 - `src/types.rs` defines shared GeoPackage types.
 - `src/bin/read_gpkg.rs` is a small CLI binary for reading a sample GeoPackage.
-- `src/test/test.gpkg` is sample data used by the binary.
 
 ## Build, Test, and Development Commands
 - `cargo build`: compile the library and binaries.
 - `cargo check`: type-check quickly without producing artifacts.
 - `cargo test`: run unit tests (currently minimal; add as features grow).
-- `cargo run --bin read_gpkg`: run the sample reader against `src/test/test.gpkg`.
+- `cargo run --bin read_gpkg`: run the sample reader against `src/test/test_gpkg.gpkg`.
 
 ## Coding Style & Naming Conventions
 - Rust 2024 edition is used (see `Cargo.toml`).

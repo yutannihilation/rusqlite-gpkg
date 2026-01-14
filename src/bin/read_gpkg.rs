@@ -10,7 +10,7 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let gpkg = Gpkg::open("src/test/test.gpkg")?;
+    let gpkg = Gpkg::open("src/test/test_generated.gpkg")?;
     let layers = gpkg.list_layers()?;
 
     for layer_name in layers {
