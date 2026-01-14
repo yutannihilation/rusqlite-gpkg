@@ -6,6 +6,8 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
+use wkb::error::WkbResult;
+use wkb::reader::Wkb;
 
 #[repr(C)]
 pub struct GpkgDataSource {
@@ -181,7 +183,7 @@ impl Gpkg {
 }
 
 // cf. https://www.geopackage.org/spec140/index.html#gpb_format
-pub(crate) fn gpkg_geometry_to_wkb(b: &[u8]) -> &[u8] {
+pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> WkbResult<Wkb<'a>> {
     let flags = b[3];
     let envelope_size: usize = match flags & 0b00001110 {
         0b00000000 => 0,  // no envelope
@@ -189,11 +191,14 @@ pub(crate) fn gpkg_geometry_to_wkb(b: &[u8]) -> &[u8] {
         0b00000100 => 48, // envelope is [minx, maxx, miny, maxy, minz, maxz], 48 bytes
         0b00000110 => 48, // envelope is [minx, maxx, miny, maxy, minm, maxm], 48 bytes
         0b00001000 => 64, // envelope is [minx, maxx, miny, maxy, minz, maxz, minm, maxm], 64 bytes
-        _ => return &[],  // invalid
+        _ => {
+            // invalid
+            return Wkb::try_new(&[]);
+        }
     };
     let offset = 8 + envelope_size;
 
-    &b[offset..]
+    Wkb::try_new(&b[offset..])
 }
 
 #[cfg(test)]

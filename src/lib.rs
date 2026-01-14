@@ -6,7 +6,7 @@ mod types;
 // but use a fixed value here.
 pub(crate) const VECTOR_SIZE: usize = 2048;
 
-use crate::gpkg::{gpkg_geometry_to_wkb, Gpkg};
+use crate::gpkg::{Gpkg, gpkg_geometry_to_wkb};
 use crate::types::ColumnType;
 
 pub fn read_gpkg(path: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -30,12 +30,16 @@ pub fn read_gpkg(path: &str) -> Result<(), Box<dyn std::error::Error>> {
                         ColumnType::Geometry => {
                             let bytes = row.get::<_, Vec<u8>>(idx)?;
                             let wkb = gpkg_geometry_to_wkb(&bytes);
-                            format!("wkb({} bytes)", wkb.len())
+                            format!("{wkb:?}")
                         }
                     };
                     values.push(format!("{}={}", spec.name, value));
                 }
-                println!("  row {}: {}", (offset as usize) + row_idx, values.join(", "));
+                println!(
+                    "  row {}: {}",
+                    (offset as usize) + row_idx,
+                    values.join(", ")
+                );
                 Ok(())
             })?;
 
