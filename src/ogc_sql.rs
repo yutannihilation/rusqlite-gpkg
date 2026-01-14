@@ -1,5 +1,7 @@
 // cf. https://www.geopackage.org/spec140/index.html#table_definition_sql
 
+// gpkg_contents: lists all geospatial contents in the package with identifying
+// and descriptive metadata for user display and access.
 pub(crate) const SQL_GPKG_CONTENTS: &str = "
 CREATE TABLE gpkg_contents (
   table_name TEXT NOT NULL PRIMARY KEY,
@@ -16,6 +18,8 @@ CREATE TABLE gpkg_contents (
 );
 ";
 
+// gpkg_extensions: declares which extensions apply to the GeoPackage, a table,
+// or a column so clients can detect requirements without scanning user tables.
 pub(crate) const SQL_GPKG_EXTENSIONS: &str = "
 CREATE TABLE gpkg_extensions (
   table_name TEXT,
@@ -86,6 +90,8 @@ pub(crate) fn initialize_gpkg(conn: &rusqlite::Connection) -> rusqlite::Result<(
     Ok(())
 }
 
+// gpkg_geometry_columns: identifies geometry columns and geometry types for
+// vector feature user data tables.
 pub(crate) const SQL_GPKG_GEOMETRY_COLUMNS: &str = "
 CREATE TABLE gpkg_geometry_columns (
   table_name TEXT NOT NULL,
@@ -101,6 +107,8 @@ CREATE TABLE gpkg_geometry_columns (
 );
 ";
 
+// gpkg_spatial_ref_sys: the SRS catalog referenced by gpkg_contents and
+// gpkg_geometry_columns to describe spatial reference systems.
 pub(crate) const SQL_GPKG_SPATIAL_REF_SYS: &str = "
 CREATE TABLE gpkg_spatial_ref_sys (
   srs_name TEXT NOT NULL,
@@ -112,7 +120,10 @@ CREATE TABLE gpkg_spatial_ref_sys (
 );
 ";
 
-// Unused, but necessary
+// gpkg_tile_matrix: documents tile pyramid structure per zoom level (tile size,
+// matrix size, and pixel sizes) to support non-square tiles and varied intervals.
+//
+// Note that this is for raster, so not used in this crate
 pub(crate) const SQL_GPKG_TILE_MATRIX: &str = "
 CREATE TABLE gpkg_tile_matrix(
   table_name TEXT NOT NULL,
@@ -138,7 +149,10 @@ CREATE TRIGGER 'gpkg_tile_matrix_pixel_y_size_insert' BEFORE INSERT ON 'gpkg_til
 CREATE TRIGGER 'gpkg_tile_matrix_pixel_y_size_update' BEFORE UPDATE OF pixel_y_size ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'update on table ''gpkg_tile_matrix'' violates constraint: pixel_y_size must be greater than 0') WHERE NOT (NEW.pixel_y_size > 0); END;
 ";
 
-// Unused, but necessary
+// gpkg_tile_matrix_set: defines SRS and overall bounds for all tiles in a tile
+// pyramid user data table.
+//
+// Note that this is for raster, so not used in this crate
 pub(crate) const SQL_GPKG_TILE_MATRIX_SET: &str = "
 CREATE TABLE gpkg_tile_matrix_set (
   table_name TEXT NOT NULL PRIMARY KEY,
