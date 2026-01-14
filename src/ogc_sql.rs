@@ -27,6 +27,55 @@ CREATE TABLE gpkg_extensions (
 );
 ";
 
+pub(crate) const SQL_LIST_LAYERS: &str = "SELECT table_name FROM gpkg_contents";
+
+pub(crate) const SQL_INSERT_GPKG_CONTENTS: &str = "
+INSERT INTO gpkg_contents
+  (table_name, data_type, identifier, description, srs_id)
+VALUES
+  (?1, 'features', ?2, '', ?3)
+";
+
+pub(crate) const SQL_INSERT_GPKG_GEOMETRY_COLUMNS: &str = "
+INSERT INTO gpkg_geometry_columns
+  (table_name, column_name, geometry_type_name, srs_id, z, m)
+VALUES
+  (?1, ?2, ?3, ?4, ?5, ?6)
+";
+
+pub(crate) const SQL_SELECT_GEOMETRY_COLUMN_META: &str = "
+SELECT column_name, geometry_type_name, z, m, srs_id
+FROM gpkg_geometry_columns
+WHERE table_name = ?
+";
+
+pub(crate) fn sql_create_table(layer_name: &str, column_defs: &str) -> String {
+    format!(r#"CREATE TABLE "{}" ({})"#, layer_name, column_defs)
+}
+
+pub(crate) fn sql_drop_table(layer_name: &str) -> String {
+    format!(r#"DROP TABLE "{layer_name}""#)
+}
+
+pub(crate) fn sql_table_columns(layer_name: &str) -> String {
+    format!("SELECT name, type FROM pragma_table_info('{layer_name}') WHERE name != 'fid'")
+}
+
+pub(crate) fn sql_select_features(layer_name: &str, columns: &str) -> String {
+    format!(r#"SELECT {} FROM "{}" ORDER BY rowid"#, columns, layer_name)
+}
+
+pub(crate) fn sql_delete_all(layer_name: &str) -> String {
+    format!(r#"DELETE FROM "{}""#, layer_name)
+}
+
+pub(crate) fn sql_insert_feature(layer_name: &str, columns: &str, values: &str) -> String {
+    format!(
+        r#"INSERT INTO "{}" ({}) VALUES ({})"#,
+        layer_name, columns, values
+    )
+}
+
 pub(crate) fn initialize_gpkg(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
     conn.execute_batch(SQL_GPKG_SPATIAL_REF_SYS)?;
     conn.execute_batch(SQL_GPKG_CONTENTS)?;

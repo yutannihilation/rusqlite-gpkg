@@ -8,7 +8,12 @@ use crate::conversions::{
     geometry_type_from_str, geometry_type_to_str,
 };
 use crate::error::{GpkgError, Result};
-use crate::ogc_sql::{execute_rtree_sqls, gpkg_rtree_drop_sql, initialize_gpkg};
+use crate::ogc_sql::{
+    SQL_INSERT_GPKG_CONTENTS, SQL_INSERT_GPKG_GEOMETRY_COLUMNS, SQL_LIST_LAYERS,
+    SQL_SELECT_GEOMETRY_COLUMN_META, execute_rtree_sqls, gpkg_rtree_drop_sql, initialize_gpkg,
+    sql_create_table, sql_delete_all, sql_drop_table, sql_insert_feature, sql_select_features,
+    sql_table_columns,
+};
 use crate::sql_functions::register_spatial_functions;
 use crate::types::ColumnSpec;
 
@@ -91,7 +96,7 @@ impl Gpkg {
 
     /// List the names of the layers.
     pub fn list_layers(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare("SELECT table_name FROM gpkg_contents")?;
+        let mut stmt = self.conn.prepare(SQL_LIST_LAYERS)?;
         let layers = stmt
             .query_map([], |row| row.get(0))?
             .collect::<std::result::Result<Vec<String>, _>>()?;
@@ -150,29 +155,15 @@ impl Gpkg {
             column_defs.push(format!(r#""{}" {col_type}"#, spec.name));
         }
 
-        let create_sql = format!(
-            r#"CREATE TABLE "{}" ({})"#,
-            layer_name,
-            column_defs.join(", ")
-        );
+        let create_sql = sql_create_table(layer_name, &column_defs.join(", "));
         self.conn.execute_batch(&create_sql)?;
 
         self.conn.execute(
-            r#"
-INSERT INTO gpkg_contents
-  (table_name, data_type, identifier, description, srs_id)
-VALUES
-  (?1, 'features', ?2, '', ?3)
-"#,
+            SQL_INSERT_GPKG_CONTENTS,
             rusqlite::params![layer_name, layer_name, srs_id],
         )?;
         self.conn.execute(
-            r#"
-INSERT INTO gpkg_geometry_columns
-  (table_name, column_name, geometry_type_name, srs_id, z, m)
-VALUES
-  (?1, ?2, ?3, ?4, ?5, ?6)
-"#,
+            SQL_INSERT_GPKG_GEOMETRY_COLUMNS,
             rusqlite::params![
                 layer_name,
                 geometry_column,
@@ -207,16 +198,13 @@ VALUES
         self.conn
             .execute_batch(&gpkg_rtree_drop_sql(layer_name, &geometry_column))?;
 
-        self.conn
-            .execute_batch(&format!(r#"DROP TABLE "{layer_name}""#))?;
+        self.conn.execute_batch(&sql_drop_table(layer_name))?;
         Ok(())
     }
 
     /// Resolve the table columns (excluding `fid`) and map SQLite types.
     fn get_column_specs(&self, layer_name: &str) -> Result<Vec<ColumnSpec>> {
-        let query = format!(
-            "SELECT name, type FROM pragma_table_info('{layer_name}') WHERE name != 'fid'",
-        );
+        let query = sql_table_columns(layer_name);
         let mut stmt = self.conn.prepare(&query)?;
 
         let column_specs = stmt.query_map([], |row| {
@@ -249,13 +237,7 @@ VALUES
         wkb::reader::Dimension,
         u32,
     )> {
-        let mut stmt = self.conn.prepare(
-            "
-SELECT column_name, geometry_type_name, z, m, srs_id
-FROM gpkg_geometry_columns
-WHERE table_name = ?
-",
-        )?;
+        let mut stmt = self.conn.prepare(SQL_SELECT_GEOMETRY_COLUMN_META)?;
 
         let (geometry_column, geometry_type_str, z, m, srs_id) =
             stmt.query_one([layer_name], |row| {
@@ -309,10 +291,7 @@ impl<'a> GpkgLayer<'a> {
             .map(|spec| format!(r#""{}""#, spec.name))
             .collect::<Vec<String>>()
             .join(",");
-        let sql = format!(
-            r#"SELECT {} FROM "{}" ORDER BY rowid"#,
-            columns, self.layer_name
-        );
+        let sql = sql_select_features(&self.layer_name, &columns);
         let mut stmt = self.conn.conn.prepare(&sql)?;
         let features = stmt
             .query_map([], |row| {
@@ -355,7 +334,7 @@ impl<'a> GpkgLayer<'a> {
     /// Remove all rows from the layer.
     pub fn truncate(&self) -> Result<usize> {
         self.ensure_writable()?;
-        let sql = format!(r#"DELETE FROM "{}""#, self.layer_name);
+        let sql = sql_delete_all(&self.layer_name);
         Ok(self.conn.conn.execute(&sql, [])?)
     }
 
@@ -397,10 +376,7 @@ impl<'a> GpkgLayer<'a> {
             .map(|i| format!("?{i}"))
             .collect::<Vec<String>>()
             .join(",");
-        let sql = format!(
-            r#"INSERT INTO "{}" ({}) VALUES ({})"#,
-            self.layer_name, columns, placeholders
-        );
+        let sql = sql_insert_feature(&self.layer_name, &columns, &placeholders);
 
         let mut stmt = self.conn.conn.prepare(&sql)?;
         Ok(stmt.execute(params_from_iter(values))?)
