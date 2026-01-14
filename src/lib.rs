@@ -9,9 +9,9 @@
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let gpkg = Gpkg::open("data.gpkg")?;
 //!     for layer_name in gpkg.list_layers()? {
-//!         let layer = gpkg.layer(&layer_name)?;
+//!         let layer = gpkg.open_layer(&layer_name)?;
 //!         for feature in layer.features()? {
-//!             let geom = feature.geometry()?;
+//!             let geom: wkb::reader::Wkb<'_> = feature.geometry()?;
 //!             let mut wkt = String::new();
 //!             write_geometry(&mut wkt, &geom)?;
 //!             println!("{layer_name}: {wkt}");

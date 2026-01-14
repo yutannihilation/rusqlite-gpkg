@@ -62,7 +62,7 @@ pub(crate) fn sql_drop_table(layer_name: &str) -> String {
 }
 
 pub(crate) fn sql_table_columns(layer_name: &str) -> String {
-    format!("SELECT name, type FROM pragma_table_info('{layer_name}') WHERE name != 'fid'")
+    format!("SELECT name, type, pk FROM pragma_table_info('{layer_name}')")
 }
 
 pub(crate) fn sql_select_features(layer_name: &str, columns: &str) -> String {

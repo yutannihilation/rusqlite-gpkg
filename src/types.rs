@@ -12,4 +12,5 @@ pub enum ColumnType {
 pub struct ColumnSpec {
     pub name: String,
     pub column_type: ColumnType,
+    pub primary_key: bool,
 }
