@@ -9,6 +9,8 @@ Small GeoPackage reader built on top of [rusqlite](https://crates.io/crates/rusq
 
 ## Example
 
+### Reader
+
 ```rs
 use rusqlite_gpkg::Gpkg;
 use wkt::to_wkt::write_geometry;
@@ -27,3 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+### Writer
+
+(Not implemeted yet)

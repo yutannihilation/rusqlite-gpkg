@@ -1,5 +1,7 @@
 //! Read and explore GeoPackage data with a small, rusqlite-backed API.
 //!
+//! ## Reader
+//!
 //! ```no_run
 //! use rusqlite_gpkg::Gpkg;
 //! use wkt::to_wkt::write_geometry;
@@ -18,6 +20,10 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Writer
+//!
+//! (Not implemeted yet)
 mod gpkg;
 
 mod ogc_sql;
