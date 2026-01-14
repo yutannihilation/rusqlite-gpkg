@@ -622,8 +622,13 @@ pub(crate) fn wkb_to_gpkg_geometry<'a>(wkb: Wkb<'a>, srs_id: u32) -> Result<Vec<
 mod tests {
     use super::Gpkg;
     use crate::Result;
+    use crate::conversions::geometry_type_to_str;
+    use crate::types::{ColumnSpec, ColumnType};
+    use geo_traits::GeometryTrait;
+    use geo_types::Point;
     use rusqlite::types::Value;
     use wkb::reader::GeometryType;
+    use wkb::reader::Wkb;
 
     fn generated_gpkg_path() -> &'static str {
         "src/test/test_generated.gpkg"
@@ -631,6 +636,33 @@ mod tests {
 
     fn property_index(columns: &[super::ColumnSpec], name: &str) -> Option<usize> {
         columns.iter().position(|col| col.name == name)
+    }
+
+    fn gpkg_blob_from_geometry<G: GeometryTrait<T = f64>>(
+        geometry: G,
+        srs_id: u32,
+    ) -> Result<Vec<u8>> {
+        let mut wkb = Vec::new();
+        wkb::writer::write_geometry(&mut wkb, &geometry, &Default::default())?;
+        let wkb = Wkb::try_new(&wkb)?;
+        super::wkb_to_gpkg_geometry(wkb, srs_id)
+    }
+
+    fn ensure_srs_4326(gpkg: &Gpkg) -> Result<()> {
+        gpkg.conn.execute(
+            "INSERT INTO gpkg_spatial_ref_sys \
+            (srs_name, srs_id, organization, organization_coordsys_id, definition, description) \
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                "WGS 84",
+                4326,
+                "EPSG",
+                4326,
+                r#"GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]]"#,
+                "WGS 84"
+            ],
+        )?;
+        Ok(())
     }
 
     #[test]
@@ -676,5 +708,192 @@ mod tests {
         assert_eq!(note, Value::Text("first".to_string()));
 
         Ok(())
+    }
+
+    #[test]
+    fn creates_layer_metadata() -> Result<()> {
+        let gpkg = Gpkg::new_in_memory()?;
+        ensure_srs_4326(&gpkg)?;
+        let columns = vec![
+            ColumnSpec {
+                name: "name".to_string(),
+                column_type: ColumnType::Varchar,
+            },
+            ColumnSpec {
+                name: "value".to_string(),
+                column_type: ColumnType::Integer,
+            },
+        ];
+
+        gpkg.new_layer(
+            "points",
+            "geom".to_string(),
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        let (geometry_type_name, srs_id, z, m): (String, u32, i8, i8) = gpkg.conn.query_row(
+            "SELECT geometry_type_name, srs_id, z, m FROM gpkg_geometry_columns WHERE table_name = 'points'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+
+        assert_eq!(
+            geometry_type_name,
+            geometry_type_to_str(GeometryType::Point)
+        );
+        assert_eq!(srs_id, 4326);
+        assert_eq!(z, 0);
+        assert_eq!(m, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn inserts_and_updates_by_primary_key() -> Result<()> {
+        let gpkg = Gpkg::new_in_memory()?;
+        ensure_srs_4326(&gpkg)?;
+        let columns = vec![
+            ColumnSpec {
+                name: "name".to_string(),
+                column_type: ColumnType::Varchar,
+            },
+            ColumnSpec {
+                name: "value".to_string(),
+                column_type: ColumnType::Integer,
+            },
+        ];
+
+        let layer = gpkg.new_layer(
+            "points",
+            "geom".to_string(),
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        let point_a = Point::new(1.0, 2.0);
+        layer.insert(
+            point_a,
+            vec![Value::Text("alpha".to_string()), Value::Integer(7)],
+        )?;
+        let id = layer.conn.conn.last_insert_rowid();
+
+        let point_b = Point::new(4.0, 5.0);
+        layer.update(
+            point_b,
+            vec![Value::Text("beta".to_string()), Value::Integer(9)],
+            id,
+        )?;
+
+        let (geom_blob, name, value): (Vec<u8>, String, i64) = layer.conn.conn.query_row(
+            "SELECT geom, name, value FROM points WHERE fid = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+
+        let expected_geom = gpkg_blob_from_geometry(Point::new(4.0, 5.0), 4326)?;
+        assert_eq!(geom_blob, expected_geom);
+        assert_eq!(name, "beta");
+        assert_eq!(value, 9);
+
+        Ok(())
+    }
+
+    #[test]
+    fn truncates_rows() -> Result<()> {
+        let gpkg = Gpkg::new_in_memory()?;
+        ensure_srs_4326(&gpkg)?;
+        let columns = vec![ColumnSpec {
+            name: "name".to_string(),
+            column_type: ColumnType::Varchar,
+        }];
+
+        let layer = gpkg.new_layer(
+            "points",
+            "geom".to_string(),
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        layer.insert(Point::new(0.0, 0.0), vec![Value::Text("a".to_string())])?;
+        layer.insert(Point::new(1.0, 1.0), vec![Value::Text("b".to_string())])?;
+
+        let deleted = layer.truncate()?;
+        assert_eq!(deleted, 2);
+
+        let count: i64 = layer
+            .conn
+            .conn
+            .query_row("SELECT COUNT(*) FROM points", [], |row| row.get(0))?;
+        assert_eq!(count, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_property_count() -> Result<()> {
+        let gpkg = Gpkg::new_in_memory()?;
+        ensure_srs_4326(&gpkg)?;
+        let columns = vec![
+            ColumnSpec {
+                name: "name".to_string(),
+                column_type: ColumnType::Varchar,
+            },
+            ColumnSpec {
+                name: "value".to_string(),
+                column_type: ColumnType::Integer,
+            },
+        ];
+
+        let layer = gpkg.new_layer(
+            "points",
+            "geom".to_string(),
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        let result = layer.insert(Point::new(0.0, 0.0), vec![Value::Text("only".to_string())]);
+        match result {
+            Err(crate::error::GpkgError::InvalidPropertyCount { expected, got }) => {
+                assert_eq!(expected, 2);
+                assert_eq!(got, 1);
+            }
+            _ => panic!("expected InvalidPropertyCount error"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn gpkg_geometry_roundtrip() -> Result<()> {
+        let point = Point::new(3.0, -1.0);
+        let mut wkb = Vec::new();
+        wkb::writer::write_geometry(&mut wkb, &point, &Default::default())?;
+        let wkb = Wkb::try_new(&wkb)?;
+        let expected = wkb.buf().to_vec();
+        let gpkg_blob = super::wkb_to_gpkg_geometry(wkb, 4326)?;
+
+        let recovered = super::gpkg_geometry_to_wkb(&gpkg_blob)?;
+        assert_eq!(recovered.buf(), expected.as_slice());
+        Ok(())
+    }
+
+    #[test]
+    fn gpkg_geometry_rejects_invalid_flags() {
+        let mut blob = vec![0x47, 0x50, 0x00, 0x0A, 0, 0, 0, 0];
+        blob.extend_from_slice(&[0; 16]);
+        let result = super::gpkg_geometry_to_wkb(&blob);
+        assert!(matches!(
+            result,
+            Err(crate::error::GpkgError::InvalidGpkgGeometryFlags(_))
+        ));
     }
 }

@@ -7,6 +7,8 @@ edition = "2024"
 geo-traits = { version = "0.3.0", default-features = false }
 rusqlite = { version = "0.38.0", features = ["bundled", "functions"] }
 wkb = "0.9.2"
+# TODO: make wkt optional since this is only used in bin/read_gpkg.rs.
+# maybe we should convert bin to examples?
 wkt = "0.14"
 
 [dev-dependencies]
