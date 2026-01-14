@@ -81,7 +81,7 @@ impl Gpkg {
     }
 
     /// Load a layer definition and metadata by name.
-    pub fn layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
+    pub fn open_layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
         let column_specs = self.get_column_specs(layer_name)?;
@@ -101,6 +101,7 @@ impl Gpkg {
         })
     }
 
+    // Create a new layer.
     pub fn new_layer<'a>(
         &'a self,
         layer_name: &str,
@@ -110,6 +111,11 @@ impl Gpkg {
         srs_id: u32,
         other_column_specs: &[ColumnSpec],
     ) -> Result<GpkgLayer<'a>> {
+        todo!()
+    }
+
+    /// Delete a layer.
+    pub fn delete_layer<'a>(&'a self, layer_name: &str) -> Result<()> {
         todo!()
     }
 
@@ -483,9 +489,9 @@ mod tests {
         layers.sort();
         assert_eq!(layers, vec!["lines", "points", "polygons"]);
 
-        let points = gpkg.layer("points")?;
-        let lines = gpkg.layer("lines")?;
-        let polygons = gpkg.layer("polygons")?;
+        let points = gpkg.open_layer("points")?;
+        let lines = gpkg.open_layer("lines")?;
+        let polygons = gpkg.open_layer("polygons")?;
 
         assert_eq!(points.features()?.count(), 5);
         assert_eq!(lines.features()?.count(), 3);
@@ -497,7 +503,7 @@ mod tests {
     #[test]
     fn reads_geometry_and_properties_from_points() -> Result<()> {
         let gpkg = Gpkg::open_read_only(generated_gpkg_path())?;
-        let layer = gpkg.layer("points")?;
+        let layer = gpkg.open_layer("points")?;
         let columns = layer.property_columns();
 
         let id_idx = property_index(columns, "id").expect("id column");
