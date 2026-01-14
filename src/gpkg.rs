@@ -22,7 +22,7 @@ pub struct Gpkg {
 
 impl Gpkg {
     /// Open a GeoPackage in read-only mode.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = rusqlite::Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         Ok(Self {
             conn,
@@ -31,7 +31,8 @@ impl Gpkg {
     }
 
     /// Open a GeoPackage in read-write mode.
-    pub fn open_rw<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        // TODO: validate if the path exists at least. Hopefully, we should check if it's valid as a GeoPackage, but I'm not sure.
         let conn = rusqlite::Connection::open(path)?;
         Ok(Self {
             conn,
@@ -39,9 +40,24 @@ impl Gpkg {
         })
     }
 
-    /// Open a GeoPackage in memory
-    pub fn open_in_memory() -> Result<Self> {
+    /// Create a new GeoPackage
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let conn = rusqlite::Connection::open(path)?;
+
+        // TODO: initialize database with necessary tables and triggers as a GeoPackage
+
+        Ok(Self {
+            conn,
+            read_only: false,
+        })
+    }
+
+    /// Create a new GeoPackage in memory
+    pub fn new_in_memory() -> Result<Self> {
         let conn = rusqlite::Connection::open_in_memory()?;
+
+        // TODO: initialize database with necessary tables and triggers as a GeoPackage
+
         Ok(Self {
             conn,
             read_only: false,
@@ -76,6 +92,18 @@ impl Gpkg {
             srs_id,
             other_columns,
         })
+    }
+
+    pub fn new_layer<'a>(
+        &'a self,
+        layer_name: &str,
+        geometry_column: String,
+        geometry_type: wkb::reader::GeometryType,
+        geometry_dimension: wkb::reader::Dimension,
+        srs_id: u32,
+        other_column_specs: &[ColumnSpec],
+    ) -> Result<GpkgLayer<'a>> {
+        todo!()
     }
 
     /// Resolve the table columns (excluding `fid`) and map SQLite types.
@@ -443,7 +471,7 @@ mod tests {
 
     #[test]
     fn reads_generated_layers_and_counts() -> Result<()> {
-        let gpkg = Gpkg::open(generated_gpkg_path())?;
+        let gpkg = Gpkg::open_read_only(generated_gpkg_path())?;
         let mut layers = gpkg.list_layers()?;
         layers.sort();
         assert_eq!(layers, vec!["lines", "points", "polygons"]);
@@ -461,7 +489,7 @@ mod tests {
 
     #[test]
     fn reads_geometry_and_properties_from_points() -> Result<()> {
-        let gpkg = Gpkg::open(generated_gpkg_path())?;
+        let gpkg = Gpkg::open_read_only(generated_gpkg_path())?;
         let layer = gpkg.layer("points")?;
         let columns = layer.property_columns();
 
