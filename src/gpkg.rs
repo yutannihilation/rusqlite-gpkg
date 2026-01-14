@@ -336,6 +336,21 @@ pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> WkbResult<Wkb<'a>> {
     Wkb::try_new(&b[offset..])
 }
 
+// cf. https://www.geopackage.org/spec140/index.html#gpb_format
+pub(crate) fn wkb_to_gpkg_geometry<'a>(wkb: Wkb<'a>, srs_id: u32) -> WkbResult<Vec<u8>> {
+    let mut geom = Vec::with_capacity(wkb.buf().len() + 8);
+    geom.extend_from_slice(&[
+        0x47u8, // magic
+        0x50u8, // magic
+        0x00u8, // version
+        0x01u8, // flags (little endian SRS ID, no envelope)
+    ]);
+    geom.extend_from_slice(&srs_id.to_le_bytes());
+    geom.extend_from_slice(wkb.buf());
+
+    Ok(geom)
+}
+
 #[cfg(test)]
 mod tests {
     use super::Gpkg;
