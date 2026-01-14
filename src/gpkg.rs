@@ -3,14 +3,15 @@
 //! This module currently focuses on reading layers and features from a GeoPackage,
 //! while keeping the API shape flexible for future write support.
 
+use crate::error::{GpkgError, Result};
 use crate::types::{ColumnSpec, ColumnType};
 
+use geo_traits::GeometryTrait;
 use rusqlite::{
-    OpenFlags, Result,
+    OpenFlags,
     types::{FromSql, FromSqlError, Type, Value, ValueRef},
 };
 use std::path::Path;
-use wkb::error::WkbResult;
 use wkb::reader::Wkb;
 
 /// GeoPackage connection wrapper for reading (and later writing) layers.
@@ -52,7 +53,7 @@ impl Gpkg {
         let mut stmt = self.conn.prepare("SELECT table_name FROM gpkg_contents")?;
         let layers = stmt
             .query_map([], |row| row.get(0))?
-            .collect::<Result<Vec<String>, _>>()?;
+            .collect::<std::result::Result<Vec<String>, _>>()?;
         Ok(layers)
     }
 
@@ -109,7 +110,7 @@ impl Gpkg {
             Ok(ColumnSpec { name, column_type })
         })?;
 
-        let result: Result<Vec<ColumnSpec>, rusqlite::Error> = column_specs.collect();
+        let result: std::result::Result<Vec<ColumnSpec>, rusqlite::Error> = column_specs.collect();
         Ok(result?)
     }
 
@@ -131,56 +132,45 @@ WHERE table_name = ?
 ",
         )?;
 
-        stmt.query_one([layer_name], |row| {
-            let geometry_column: String = row.get(0)?;
-            let geometry_type_str: String = row.get(1)?;
-            let z: i8 = row.get(2)?;
-            let m: i8 = row.get(3)?;
-            let srs_id: u32 = row.get(4)?;
+        let (geometry_column, geometry_type_str, z, m, srs_id) =
+            stmt.query_one([layer_name], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i8>(2)?,
+                    row.get::<_, i8>(3)?,
+                    row.get::<_, u32>(4)?,
+                ))
+            })?;
 
-            let geometry_type = match geometry_type_str.as_str() {
-                "GEOMETRY" => wkb::reader::GeometryType::GeometryCollection,
-                "POINT" => wkb::reader::GeometryType::Point,
-                "LINESTRING" => wkb::reader::GeometryType::LineString,
-                "POLYGON" => wkb::reader::GeometryType::Polygon,
-                "MULTIPOINT" => wkb::reader::GeometryType::MultiPoint,
-                "MULTILINESTRING" => wkb::reader::GeometryType::MultiLineString,
-                "MULTIPOLYGON" => wkb::reader::GeometryType::MultiPolygon,
-                "GEOMETRYCOLLECTION" => wkb::reader::GeometryType::GeometryCollection,
-                _ => {
-                    return Err(rusqlite::Error::InvalidColumnType(
-                        1,
-                        "geometry_type_name".to_string(),
-                        Type::Text,
-                    ));
-                }
-            };
+        let geometry_type = match geometry_type_str.as_str() {
+            "GEOMETRY" => wkb::reader::GeometryType::GeometryCollection,
+            "POINT" => wkb::reader::GeometryType::Point,
+            "LINESTRING" => wkb::reader::GeometryType::LineString,
+            "POLYGON" => wkb::reader::GeometryType::Polygon,
+            "MULTIPOINT" => wkb::reader::GeometryType::MultiPoint,
+            "MULTILINESTRING" => wkb::reader::GeometryType::MultiLineString,
+            "MULTIPOLYGON" => wkb::reader::GeometryType::MultiPolygon,
+            "GEOMETRYCOLLECTION" => wkb::reader::GeometryType::GeometryCollection,
+            _ => return Err(GpkgError::UnsupportedGeometryType(geometry_type_str)),
+        };
 
-            // Note: the spec says z and m are
-            //
-            //   0: z/m values prohibited
-            //   1: z/m values mandatory
-            //   2: z/m values optional
-            //
-            // but I don't know how 2 can be handled
-            let geometry_dimension = match (z, m) {
-                (0, 0) => wkb::reader::Dimension::Xy,
-                (1, 0) => wkb::reader::Dimension::Xyz,
-                (0, 1) => wkb::reader::Dimension::Xym,
-                (1, 1) => wkb::reader::Dimension::Xyzm,
-                // TODO: these cases with 2 should be distinguished, but we can only return rusqlite's Error here.
-                // Are there any nicer way?
-                (2, _) | (_, 2) | _ => {
-                    return Err(rusqlite::Error::InvalidColumnType(
-                        2,
-                        "dimension".to_string(),
-                        Type::Integer,
-                    ));
-                }
-            };
+        // Note: the spec says z and m are
+        //
+        //   0: z/m values prohibited
+        //   1: z/m values mandatory
+        //   2: z/m values optional
+        //
+        // but I don't know how 2 can be handled
+        let geometry_dimension = match (z, m) {
+            (0, 0) => wkb::reader::Dimension::Xy,
+            (1, 0) => wkb::reader::Dimension::Xyz,
+            (0, 1) => wkb::reader::Dimension::Xym,
+            (1, 1) => wkb::reader::Dimension::Xyzm,
+            (2, _) | (_, 2) | _ => return Err(GpkgError::InvalidDimension { z, m }),
+        };
 
-            Ok((geometry_column, geometry_type, geometry_dimension, srs_id))
-        })
+        Ok((geometry_column, geometry_type, geometry_dimension, srs_id))
     }
 }
 
@@ -254,7 +244,7 @@ impl<'a> GpkgLayer<'a> {
                     properties,
                 })
             })?
-            .collect::<Result<Vec<GpkgFeature>>>()?;
+            .collect::<std::result::Result<Vec<GpkgFeature>, _>>()?;
 
         Ok(GpkgFeatureIterator {
             features: features.into_iter(),
@@ -272,10 +262,13 @@ impl GpkgFeature {
     /// Decode the geometry column into WKB.
     pub fn geometry(&self) -> Result<Wkb<'_>> {
         let bytes = self.geometry.as_ref().ok_or_else(|| {
-            rusqlite::Error::InvalidColumnType(0, "geometry".to_string(), Type::Null)
+            GpkgError::Sql(rusqlite::Error::InvalidColumnType(
+                0,
+                "geometry".to_string(),
+                Type::Null,
+            ))
         })?;
-        gpkg_geometry_to_wkb(bytes)
-            .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Blob, Box::new(err)))
+        Ok(gpkg_geometry_to_wkb(bytes)?)
     }
 
     /// Read a property by index using rusqlite's `FromSql` conversion.
@@ -283,22 +276,43 @@ impl GpkgFeature {
         let value = self
             .properties
             .get(idx)
-            .ok_or(rusqlite::Error::InvalidColumnIndex(idx))?;
+            .ok_or(GpkgError::Sql(rusqlite::Error::InvalidColumnIndex(idx)))?;
         let value_ref = ValueRef::from(value);
         FromSql::column_result(value_ref).map_err(|err| match err {
-            FromSqlError::InvalidType => rusqlite::Error::InvalidColumnType(
+            FromSqlError::InvalidType => GpkgError::Sql(rusqlite::Error::InvalidColumnType(
                 idx,
                 format!("column {idx}"),
                 value_ref.data_type(),
-            ),
-            FromSqlError::OutOfRange(i) => rusqlite::Error::IntegralValueOutOfRange(idx, i),
-            FromSqlError::Other(err) => {
-                rusqlite::Error::FromSqlConversionFailure(idx, value_ref.data_type(), err)
+            )),
+            FromSqlError::OutOfRange(i) => {
+                GpkgError::Sql(rusqlite::Error::IntegralValueOutOfRange(idx, i))
             }
+            FromSqlError::Other(err) => GpkgError::Sql(rusqlite::Error::FromSqlConversionFailure(
+                idx,
+                value_ref.data_type(),
+                err,
+            )),
             FromSqlError::InvalidBlobSize { .. } => {
-                rusqlite::Error::FromSqlConversionFailure(idx, value_ref.data_type(), Box::new(err))
+                GpkgError::Sql(rusqlite::Error::FromSqlConversionFailure(
+                    idx,
+                    value_ref.data_type(),
+                    Box::new(err),
+                ))
             }
-            _ => unimplemented!(),
+            _ => GpkgError::Message("unsupported sqlite type conversion".to_string()),
+        })
+    }
+
+    pub fn new<G, I>(geometry: G, properties: I) -> Result<Self>
+    where
+        G: GeometryTrait<T = f64>,
+        I: IntoIterator<Item = Value>,
+    {
+        let mut wkb = Vec::new();
+        wkb::writer::write_geometry(&mut wkb, &geometry, &Default::default())?;
+        Ok(Self {
+            geometry: Some(wkb),
+            properties: properties.into_iter().collect(),
         })
     }
 }
@@ -318,7 +332,7 @@ impl Iterator for GpkgFeatureIterator {
 
 /// Strip GeoPackage header and envelope bytes to access raw WKB.
 // cf. https://www.geopackage.org/spec140/index.html#gpb_format
-pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> WkbResult<Wkb<'a>> {
+pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> Result<Wkb<'a>> {
     let flags = b[3];
     let envelope_size: usize = match flags & 0b00001110 {
         0b00000000 => 0,  // no envelope
@@ -328,16 +342,16 @@ pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> WkbResult<Wkb<'a>> {
         0b00001000 => 64, // envelope is [minx, maxx, miny, maxy, minz, maxz, minm, maxm], 64 bytes
         _ => {
             // invalid
-            return Wkb::try_new(&[]);
+            return Wkb::try_new(&[]).map_err(GpkgError::from);
         }
     };
     let offset = 8 + envelope_size;
 
-    Wkb::try_new(&b[offset..])
+    Ok(Wkb::try_new(&b[offset..])?)
 }
 
 // cf. https://www.geopackage.org/spec140/index.html#gpb_format
-pub(crate) fn wkb_to_gpkg_geometry<'a>(wkb: Wkb<'a>, srs_id: u32) -> WkbResult<Vec<u8>> {
+pub(crate) fn wkb_to_gpkg_geometry<'a>(wkb: Wkb<'a>, srs_id: u32) -> Result<Vec<u8>> {
     let mut geom = Vec::with_capacity(wkb.buf().len() + 8);
     geom.extend_from_slice(&[
         0x47u8, // magic
@@ -354,6 +368,7 @@ pub(crate) fn wkb_to_gpkg_geometry<'a>(wkb: Wkb<'a>, srs_id: u32) -> WkbResult<V
 #[cfg(test)]
 mod tests {
     use super::Gpkg;
+    use crate::Result;
     use rusqlite::types::Value;
     use wkb::reader::GeometryType;
 
@@ -366,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_generated_layers_and_counts() -> Result<(), Box<dyn std::error::Error>> {
+    fn reads_generated_layers_and_counts() -> Result<()> {
         let gpkg = Gpkg::open(generated_gpkg_path())?;
         let mut layers = gpkg.list_layers()?;
         layers.sort();
@@ -384,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_geometry_and_properties_from_points() -> Result<(), Box<dyn std::error::Error>> {
+    fn reads_geometry_and_properties_from_points() -> Result<()> {
         let gpkg = Gpkg::open(generated_gpkg_path())?;
         let layer = gpkg.layer("points")?;
         let columns = layer.property_columns();

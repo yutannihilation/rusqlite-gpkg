@@ -24,11 +24,13 @@
 //! ## Writer
 //!
 //! (Not implemeted yet)
+mod error;
 mod gpkg;
 
 mod ogc_sql;
 mod types;
 
+pub use error::{GpkgError, Result};
 pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureIterator, GpkgLayer};
 
 // Re-export types used in public fields to keep the public API stable.

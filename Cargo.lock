@@ -258,6 +258,7 @@ dependencies = [
 name = "rusqlite-gpkg"
 version = "0.1.0"
 dependencies = [
+ "geo-traits",
  "rusqlite",
  "wkb",
  "wkt",
