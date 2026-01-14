@@ -8,7 +8,7 @@ use crate::types::{ColumnSpec, ColumnType};
 
 use geo_traits::GeometryTrait;
 use rusqlite::{
-    OpenFlags,
+    OpenFlags, params_from_iter,
     types::{FromSql, FromSqlError, Type, Value, ValueRef},
 };
 use std::path::Path;
@@ -249,6 +249,67 @@ impl<'a> GpkgLayer<'a> {
         Ok(GpkgFeatureIterator {
             features: features.into_iter(),
         })
+    }
+
+    /// Remove all rows from the layer.
+    pub fn truncate(&self) -> Result<usize> {
+        self.ensure_writable()?;
+        let sql = format!(r#"DELETE FROM "{}""#, self.layer_name);
+        Ok(self.conn.conn.execute(&sql, [])?)
+    }
+
+    /// Insert a feature with geometry and ordered property values.
+    pub fn insert<G, I>(&self, geometry: G, params: I) -> Result<usize>
+    where
+        G: GeometryTrait<T = f64>,
+        I: IntoIterator<Item = Value>,
+    {
+        self.ensure_writable()?;
+
+        let mut wkb = Vec::new();
+        wkb::writer::write_geometry(&mut wkb, &geometry, &Default::default())?;
+        let wkb = Wkb::try_new(&wkb)?;
+        let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
+
+        let properties: Vec<Value> = params.into_iter().collect();
+        if properties.len() != self.other_columns.len() {
+            return Err(GpkgError::InvalidPropertyCount {
+                expected: self.other_columns.len(),
+                got: properties.len(),
+            });
+        }
+
+        let mut values = Vec::with_capacity(self.other_columns.len() + 1);
+        values.push(Value::Blob(geom));
+        values.extend(properties);
+
+        let mut column_names = Vec::with_capacity(self.other_columns.len() + 1);
+        column_names.push(self.geometry_column.clone());
+        column_names.extend(self.other_columns.iter().map(|col| col.name.clone()));
+
+        let columns = column_names
+            .iter()
+            .map(|name| format!(r#""{}""#, name))
+            .collect::<Vec<String>>()
+            .join(",");
+        let placeholders = (1..=column_names.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<String>>()
+            .join(",");
+        let sql = format!(
+            r#"INSERT INTO "{}" ({}) VALUES ({})"#,
+            self.layer_name, columns, placeholders
+        );
+
+        let mut stmt = self.conn.conn.prepare(&sql)?;
+        Ok(stmt.execute(params_from_iter(values))?)
+    }
+
+    fn ensure_writable(&self) -> Result<()> {
+        if self.conn.read_only {
+            return Err(GpkgError::ReadOnly);
+        }
+        Ok(())
     }
 }
 

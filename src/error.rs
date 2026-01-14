@@ -8,6 +8,8 @@ pub enum GpkgError {
     Wkb(wkb::error::WkbError),
     UnsupportedGeometryType(String),
     InvalidDimension { z: i8, m: i8 },
+    InvalidPropertyCount { expected: usize, got: usize },
+    ReadOnly,
     Message(String),
 }
 
@@ -20,6 +22,10 @@ impl fmt::Display for GpkgError {
             Self::InvalidDimension { z, m } => {
                 write!(f, "invalid or mixed geometry dimension (z={z}, m={m})")
             }
+            Self::InvalidPropertyCount { expected, got } => {
+                write!(f, "invalid property count: expected {expected}, got {got}")
+            }
+            Self::ReadOnly => write!(f, "operation not allowed on read-only connection"),
             Self::Message(message) => write!(f, "{message}"),
         }
     }
