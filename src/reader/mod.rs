@@ -30,7 +30,7 @@ impl Gpkg {
         Ok(layers)
     }
 
-    pub fn layer(&self, layer_name: &str) -> Result<GpkgLayer> {
+    pub fn layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
         let column_specs = self.get_column_specs(layer_name)?;
@@ -166,6 +166,14 @@ pub struct GpkgLayer<'a> {
 }
 
 impl<'a> GpkgLayer<'a> {
+    pub fn geometry_column(&self) -> &str {
+        &self.geometry_column
+    }
+
+    pub fn property_columns(&self) -> &[ColumnSpec] {
+        &self.other_columns
+    }
+
     pub fn features(&self) -> Result<GpkgFeatureIterator> {
         let column_specs = self.conn.get_column_specs(&self.layer_name)?;
         let geometry_index = column_specs

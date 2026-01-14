@@ -2,6 +2,8 @@ mod ogc_sql;
 mod reader;
 mod types;
 
+pub use reader::Gpkg;
+
 // The data chunk size. This can be obtained via libduckdb_sys::duckdb_vector_size(),
 // but use a fixed value here.
 pub(crate) const VECTOR_SIZE: usize = 2048;

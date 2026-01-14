@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 rusqlite = { version = "0.38.0", features = ["bundled"] }
 wkb = "0.9.2"
+wkt = "0.14"
