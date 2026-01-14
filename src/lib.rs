@@ -1,4 +1,3 @@
-mod gpkg;
 //! Read and explore GeoPackage data with a small, rusqlite-backed API.
 //!
 //! ```no_run
@@ -19,6 +18,7 @@ mod gpkg;
 //!     Ok(())
 //! }
 //! ```
+mod gpkg;
 
 mod ogc_sql;
 mod types;
