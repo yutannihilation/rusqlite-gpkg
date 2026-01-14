@@ -27,6 +27,16 @@ CREATE TABLE gpkg_extensions (
 );
 ";
 
+pub(crate) fn initialize_gpkg(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(SQL_GPKG_SPATIAL_REF_SYS)?;
+    conn.execute_batch(SQL_GPKG_CONTENTS)?;
+    conn.execute_batch(SQL_GPKG_GEOMETRY_COLUMNS)?;
+    conn.execute_batch(SQL_GPKG_TILE_MATRIX_SET)?;
+    conn.execute_batch(SQL_GPKG_TILE_MATRIX)?;
+    conn.execute_batch(SQL_GPKG_EXTENSIONS)?;
+    Ok(())
+}
+
 pub(crate) const SQL_GPKG_GEOMETRY_COLUMNS: &str = "
 CREATE TABLE gpkg_geometry_columns (
   table_name TEXT NOT NULL,

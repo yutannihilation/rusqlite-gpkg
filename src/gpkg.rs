@@ -4,6 +4,7 @@
 //! while keeping the API shape flexible for future write support.
 
 use crate::error::{GpkgError, Result};
+use crate::ogc_sql::initialize_gpkg;
 use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, ColumnType};
 
@@ -48,7 +49,7 @@ impl Gpkg {
         // TODO: raise an error if the file already exists
         let conn = rusqlite::Connection::open(path)?;
 
-        // TODO: initialize database with necessary tables and triggers as a GeoPackage
+        initialize_gpkg(&conn)?;
         register_spatial_functions(&conn)?;
 
         Ok(Self {
@@ -61,7 +62,7 @@ impl Gpkg {
     pub fn new_in_memory() -> Result<Self> {
         let conn = rusqlite::Connection::open_in_memory()?;
 
-        // TODO: initialize database with necessary tables and triggers as a GeoPackage
+        initialize_gpkg(&conn)?;
         register_spatial_functions(&conn)?;
 
         Ok(Self {
