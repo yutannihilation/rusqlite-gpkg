@@ -38,6 +38,15 @@ impl Gpkg {
         })
     }
 
+    /// Open a GeoPackage in memory
+    pub fn open_in_memory() -> Result<Self> {
+        let conn = rusqlite::Connection::open_in_memory()?;
+        Ok(Self {
+            conn,
+            read_only: false,
+        })
+    }
+
     /// List the names of the layers.
     pub fn list_layers(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare("SELECT table_name FROM gpkg_contents")?;
