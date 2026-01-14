@@ -1,5 +1,5 @@
 mod ogc_sql;
-mod reader;
+mod gpkg;
 mod types;
 
-pub use reader::Gpkg;
+pub use gpkg::Gpkg;
