@@ -12,5 +12,10 @@ pub enum ColumnType {
 pub struct ColumnSpec {
     pub name: String,
     pub column_type: ColumnType,
-    pub primary_key: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct ColumnSpecs {
+    pub primary_key: String,
+    pub other_columns: Vec<ColumnSpec>,
 }

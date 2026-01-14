@@ -15,7 +15,7 @@ use crate::ogc_sql::{
     sql_table_columns,
 };
 use crate::sql_functions::register_spatial_functions;
-use crate::types::ColumnSpec;
+use crate::types::{ColumnSpec, ColumnSpecs};
 
 use geo_traits::GeometryTrait;
 use rusqlite::{
@@ -108,27 +108,9 @@ impl Gpkg {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
         let column_specs = self.get_column_specs(layer_name)?;
-        let mut primary_key_specs = column_specs
-            .iter()
-            .filter(|spec| spec.primary_key)
-            .collect::<Vec<_>>();
-        if primary_key_specs.is_empty() {
-            return Err(GpkgError::Message(format!(
-                "No primary key column found for layer: {layer_name}"
-            )));
-        }
-        if primary_key_specs.len() > 1 {
-            return Err(GpkgError::Message(format!(
-                "Composite primary keys are not supported yet for layer: {layer_name}"
-            )));
-        }
-        let primary_key_column = primary_key_specs
-            .pop()
-            .expect("primary key list checked")
-            .name
-            .clone();
-
+        let primary_key_column = column_specs.primary_key.clone();
         let other_columns = column_specs
+            .other_columns
             .into_iter()
             .filter(|spec| spec.name != geometry_column)
             .collect();
@@ -225,10 +207,11 @@ impl Gpkg {
     }
 
     /// Resolve the table columns and map SQLite types.
-    fn get_column_specs(&self, layer_name: &str) -> Result<Vec<ColumnSpec>> {
+    fn get_column_specs(&self, layer_name: &str) -> Result<ColumnSpecs> {
         let query = sql_table_columns(layer_name);
         let mut stmt = self.conn.prepare(&query)?;
 
+        let mut primary_key: Option<String> = None;
         let column_specs = stmt.query_map([], |row| {
             let name: String = row.get(0)?;
             let column_type_str: String = row.get(1)?;
@@ -244,15 +227,34 @@ impl Gpkg {
                 )
             })?;
 
-            Ok(ColumnSpec {
-                name,
-                column_type,
-                primary_key,
-            })
+            Ok((name, column_type, primary_key))
         })?;
 
-        let result: std::result::Result<Vec<ColumnSpec>, rusqlite::Error> = column_specs.collect();
-        Ok(result?)
+        let result: std::result::Result<Vec<(String, crate::types::ColumnType, bool)>, _> =
+            column_specs.collect();
+        let mut other_columns = Vec::new();
+        for (name, column_type, is_primary_key) in result? {
+            if is_primary_key {
+                if primary_key.is_some() {
+                    return Err(GpkgError::Message(format!(
+                        "Composite primary keys are not supported yet for layer: {layer_name}"
+                    )));
+                }
+                primary_key = Some(name.clone());
+            }
+            other_columns.push(ColumnSpec { name, column_type });
+        }
+
+        let primary_key = primary_key.ok_or_else(|| {
+            GpkgError::Message(format!(
+                "No primary key column found for layer: {layer_name}"
+            ))
+        })?;
+
+        Ok(ColumnSpecs {
+            primary_key,
+            other_columns,
+        })
     }
 
     /// Resolve the geometry column metadata and SRS information for a layer.
@@ -317,14 +319,17 @@ impl<'a> GpkgLayer<'a> {
     pub fn features(&self) -> Result<GpkgFeatureIterator> {
         let column_specs = self.conn.get_column_specs(&self.layer_name)?;
         let geometry_index = column_specs
+            .other_columns
             .iter()
             .position(|spec| spec.name == self.geometry_column)
             .ok_or_else(|| rusqlite::Error::InvalidColumnName(self.geometry_column.clone()))?;
         let primary_index = column_specs
+            .other_columns
             .iter()
             .position(|spec| spec.name == self.primary_key_column)
             .ok_or_else(|| rusqlite::Error::InvalidColumnName(self.primary_key_column.clone()))?;
         let columns = column_specs
+            .other_columns
             .iter()
             .map(|spec| format!(r#""{}""#, spec.name))
             .collect::<Vec<String>>()
@@ -335,9 +340,10 @@ impl<'a> GpkgLayer<'a> {
             .query_map([], |row| {
                 let mut id: Option<i64> = None;
                 let mut geometry: Option<Vec<u8>> = None;
-                let mut properties = Vec::with_capacity(column_specs.len().saturating_sub(1));
+                let mut properties =
+                    Vec::with_capacity(column_specs.other_columns.len().saturating_sub(1));
 
-                for (idx, spec) in column_specs.iter().enumerate() {
+                for (idx, spec) in column_specs.other_columns.iter().enumerate() {
                     let value_ref = row.get_ref(idx)?;
                     let value = Value::from(value_ref);
 
@@ -353,23 +359,30 @@ impl<'a> GpkgLayer<'a> {
                                 ));
                             }
                         }
-                    } else {
-                        if idx == primary_index {
-                            match &value {
-                                Value::Integer(value) => id = Some(*value),
-                                Value::Null => id = None,
-                                _ => {
-                                    return Err(rusqlite::Error::InvalidColumnType(
-                                        idx,
-                                        spec.name.clone(),
-                                        value_ref.data_type(),
-                                    ));
-                                }
+                    } else if idx == primary_index {
+                        match &value {
+                            Value::Integer(value) => id = Some(*value),
+                            _ => {
+                                return Err(rusqlite::Error::InvalidColumnType(
+                                    idx,
+                                    spec.name.clone(),
+                                    value_ref.data_type(),
+                                ));
                             }
                         }
                         properties.push(value);
+                    } else {
+                        properties.push(value);
                     }
                 }
+
+                let id = id.ok_or_else(|| {
+                    rusqlite::Error::InvalidColumnType(
+                        primary_index,
+                        self.primary_key_column.clone(),
+                        Type::Null,
+                    )
+                })?;
 
                 Ok(GpkgFeature {
                     id,
@@ -445,14 +458,14 @@ impl<'a> GpkgLayer<'a> {
 
 /// A single feature with geometry bytes and owned properties.
 pub struct GpkgFeature {
-    id: Option<i64>,
+    id: i64,
     geometry: Option<Vec<u8>>,
     properties: Vec<Value>,
 }
 
 impl GpkgFeature {
-    /// Return the primary key value, if present.
-    pub fn id(&self) -> Option<i64> {
+    /// Return the primary key value.
+    pub fn id(&self) -> i64 {
         self.id
     }
 
@@ -500,7 +513,7 @@ impl GpkgFeature {
         })
     }
 
-    pub fn new<G, I>(geometry: G, properties: I) -> Result<Self>
+    pub fn new<G, I>(id: i64, geometry: G, properties: I) -> Result<Self>
     where
         G: GeometryTrait<T = f64>,
         I: IntoIterator<Item = Value>,
@@ -508,7 +521,7 @@ impl GpkgFeature {
         let mut wkb = Vec::new();
         wkb::writer::write_geometry(&mut wkb, &geometry, &Default::default())?;
         Ok(Self {
-            id: None,
+            id,
             geometry: Some(wkb),
             properties: properties.into_iter().collect(),
         })
