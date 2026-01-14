@@ -1,7 +1,10 @@
 use crate::VECTOR_SIZE;
 use crate::types::{ColumnSpec, ColumnType};
 
-use rusqlite::{Connection, OpenFlags, Result, Row};
+use rusqlite::{
+    Connection, OpenFlags, Result, Row,
+    types::{FromSql, FromSqlError, Type, Value, ValueRef},
+};
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -15,7 +18,7 @@ pub struct Gpkg {
 
 impl Gpkg {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let conn = rusqlite::Connection::open(path)?;
+        let conn = rusqlite::Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         Ok(Self { conn })
     }
 
@@ -28,13 +31,26 @@ impl Gpkg {
     }
 
     pub fn layer(&self, layer_name: &str) -> Result<GpkgLayer> {
-        todo!()
+        let (geometry_column, geometry_type, geometry_dimension, srs_id) =
+            self.get_geometry_column_and_srs_id(layer_name)?;
+        let column_specs = self.get_column_specs(layer_name)?;
+        let other_columns = column_specs
+            .into_iter()
+            .filter(|spec| spec.name != geometry_column)
+            .collect();
+
+        Ok(GpkgLayer {
+            conn: self,
+            layer_name: layer_name.to_string(),
+            geometry_column,
+            geometry_type,
+            geometry_dimension,
+            srs_id,
+            other_columns,
+        })
     }
 
-    fn get_column_specs(
-        &self,
-        layer_name: &str,
-    ) -> Result<Vec<ColumnSpec>, Box<dyn std::error::Error>> {
+    fn get_column_specs(&self, layer_name: &str) -> Result<Vec<ColumnSpec>> {
         let query = format!(
             "SELECT name, type FROM pragma_table_info('{layer_name}') WHERE name != 'fid'",
         );
@@ -72,10 +88,12 @@ impl Gpkg {
     fn get_geometry_column_and_srs_id(
         &self,
         layer_name: &str,
-    ) -> Result<
-        (String, wkb::reader::GeometryType, wkb::reader::Dimension),
-        Box<dyn std::error::Error>,
-    > {
+    ) -> Result<(
+        String,
+        wkb::reader::GeometryType,
+        wkb::reader::Dimension,
+        u32,
+    )> {
         let mut stmt = self.conn.prepare(
             "
 SELECT column_name, geometry_type_name, z, m, srs_id
@@ -84,23 +102,29 @@ WHERE table_name = ?
 ",
         )?;
 
-        let result = stmt.query_one([layer_name], |row| {
+        stmt.query_one([layer_name], |row| {
             let geometry_column: String = row.get(0)?;
             let geometry_type_str: String = row.get(1)?;
             let z: i8 = row.get(2)?;
             let m: i8 = row.get(3)?;
+            let srs_id: u32 = row.get(4)?;
 
             let geometry_type = match geometry_type_str.as_str() {
-                "GEOMETRY" => Some(wkb::reader::GeometryType::GeometryCollection),
-                "POINT" => Some(wkb::reader::GeometryType::Point),
-                "LINESTRING" => Some(wkb::reader::GeometryType::LineString),
-                "POLYGON" => Some(wkb::reader::GeometryType::Polygon),
-                "MULTIPOINT" => Some(wkb::reader::GeometryType::MultiPoint),
-                "MULTILINESTRING" => Some(wkb::reader::GeometryType::MultiLineString),
-                "MULTIPOLYGON" => Some(wkb::reader::GeometryType::MultiLineString),
-                "GEOMETRYCOLLECTION" => Some(wkb::reader::GeometryType::GeometryCollection),
-                // TODO: want to return the geometry_type name to show in the error message
-                _ => None,
+                "GEOMETRY" => wkb::reader::GeometryType::GeometryCollection,
+                "POINT" => wkb::reader::GeometryType::Point,
+                "LINESTRING" => wkb::reader::GeometryType::LineString,
+                "POLYGON" => wkb::reader::GeometryType::Polygon,
+                "MULTIPOINT" => wkb::reader::GeometryType::MultiPoint,
+                "MULTILINESTRING" => wkb::reader::GeometryType::MultiLineString,
+                "MULTIPOLYGON" => wkb::reader::GeometryType::MultiPolygon,
+                "GEOMETRYCOLLECTION" => wkb::reader::GeometryType::GeometryCollection,
+                _ => {
+                    return Err(rusqlite::Error::InvalidColumnType(
+                        1,
+                        "geometry_type_name".to_string(),
+                        Type::Text,
+                    ));
+                }
             };
 
             // Note: the spec says z and m are
@@ -111,30 +135,23 @@ WHERE table_name = ?
             //
             // but I don't know how 2 can be handled
             let geometry_dimension = match (z, m) {
-                (0, 0) => Some(wkb::reader::Dimension::Xy),
-                (1, 0) => Some(wkb::reader::Dimension::Xyz),
-                (0, 1) => Some(wkb::reader::Dimension::Xym),
-                (1, 1) => Some(wkb::reader::Dimension::Xyzm),
-                // TODO: these two cases should be distinguished, but we can only return rusqlite's Error here.
+                (0, 0) => wkb::reader::Dimension::Xy,
+                (1, 0) => wkb::reader::Dimension::Xyz,
+                (0, 1) => wkb::reader::Dimension::Xym,
+                (1, 1) => wkb::reader::Dimension::Xyzm,
+                // TODO: these cases with 2 should be distinguished, but we can only return rusqlite's Error here.
                 // Are there any nicer way?
-                (2, _) | (_, 2) => None,
-                _ => None,
+                (2, _) | (_, 2) | _ => {
+                    return Err(rusqlite::Error::InvalidColumnType(
+                        2,
+                        "dimension".to_string(),
+                        Type::Integer,
+                    ));
+                }
             };
 
-            Ok((geometry_column, geometry_type, geometry_dimension))
-        })?;
-
-        let geometry_type = match result.1 {
-            Some(geometry_type) => geometry_type,
-            None => return Err("Unsupported geometry".into()),
-        };
-
-        let geometry_dimension = match result.2 {
-            Some(geometry_dimension) => geometry_dimension,
-            None => return Err("Invalid or mixed dimension".into()),
-        };
-
-        Ok((result.0, geometry_type, geometry_dimension))
+            Ok((geometry_column, geometry_type, geometry_dimension, srs_id))
+        })
     }
 }
 
@@ -149,42 +166,108 @@ pub struct GpkgLayer<'a> {
 }
 
 impl<'a> GpkgLayer<'a> {
-    fn features(&self) -> Result<GpkgFeatureIterator<'a>> {
-        todo!()
+    pub fn features(&self) -> Result<GpkgFeatureIterator> {
+        let column_specs = self.conn.get_column_specs(&self.layer_name)?;
+        let geometry_index = column_specs
+            .iter()
+            .position(|spec| spec.name == self.geometry_column)
+            .ok_or_else(|| rusqlite::Error::InvalidColumnName(self.geometry_column.clone()))?;
+        let columns = column_specs
+            .iter()
+            .map(|spec| format!(r#""{}""#, spec.name))
+            .collect::<Vec<String>>()
+            .join(",");
+        let sql = format!(
+            r#"SELECT {} FROM "{}" ORDER BY rowid"#,
+            columns, self.layer_name
+        );
+        let mut stmt = self.conn.conn.prepare(&sql)?;
+        let features = stmt
+            .query_map([], |row| {
+                let mut geometry: Option<Vec<u8>> = None;
+                let mut properties = Vec::with_capacity(column_specs.len().saturating_sub(1));
+
+                for (idx, spec) in column_specs.iter().enumerate() {
+                    let value_ref = row.get_ref(idx)?;
+                    let value = Value::from(value_ref);
+
+                    if idx == geometry_index {
+                        match value {
+                            Value::Blob(bytes) => geometry = Some(bytes),
+                            Value::Null => geometry = None,
+                            _ => {
+                                return Err(rusqlite::Error::InvalidColumnType(
+                                    idx,
+                                    spec.name.clone(),
+                                    value_ref.data_type(),
+                                ));
+                            }
+                        }
+                    } else {
+                        properties.push(value);
+                    }
+                }
+
+                Ok(GpkgFeature {
+                    geometry,
+                    properties,
+                })
+            })?
+            .collect::<Result<Vec<GpkgFeature>>>()?;
+
+        Ok(GpkgFeatureIterator {
+            features: features.into_iter(),
+        })
     }
 }
 
-pub struct GpkgFeature<'a> {
-    row: rusqlite::Row<'a>,
-    geometry_column: usize,
+pub struct GpkgFeature {
+    geometry: Option<Vec<u8>>,
+    properties: Vec<Value>,
 }
 
-impl<'a> GpkgFeature<'a> {
-    fn geometry(&'a self) -> Result<Wkb<'a>> {
-        todo!()
+impl GpkgFeature {
+    pub fn geometry(&self) -> Result<Wkb<'_>> {
+        let bytes = self.geometry.as_ref().ok_or_else(|| {
+            rusqlite::Error::InvalidColumnType(0, "geometry".to_string(), Type::Null)
+        })?;
+        gpkg_geometry_to_wkb(bytes)
+            .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Blob, Box::new(err)))
     }
 
-    fn property<T>(&self, idx: usize) -> Result<T> {
-        todo!()
-    }
-
-    fn properties<T>(&self) -> Result<&'a [T]> {
-        todo!()
+    pub fn property<T: FromSql>(&self, idx: usize) -> Result<T> {
+        let value = self
+            .properties
+            .get(idx)
+            .ok_or(rusqlite::Error::InvalidColumnIndex(idx))?;
+        let value_ref = ValueRef::from(value);
+        FromSql::column_result(value_ref).map_err(|err| match err {
+            FromSqlError::InvalidType => rusqlite::Error::InvalidColumnType(
+                idx,
+                format!("column {idx}"),
+                value_ref.data_type(),
+            ),
+            FromSqlError::OutOfRange(i) => rusqlite::Error::IntegralValueOutOfRange(idx, i),
+            FromSqlError::Other(err) => {
+                rusqlite::Error::FromSqlConversionFailure(idx, value_ref.data_type(), err)
+            }
+            FromSqlError::InvalidBlobSize { .. } => {
+                rusqlite::Error::FromSqlConversionFailure(idx, value_ref.data_type(), Box::new(err))
+            }
+            _ => unimplemented!(),
+        })
     }
 }
 
-pub struct GpkgFeatureIterator<'a> {
-    rows: rusqlite::Rows<'a>,
+pub struct GpkgFeatureIterator {
+    features: std::vec::IntoIter<GpkgFeature>,
 }
 
-impl<'a> Iterator for GpkgFeatureIterator<'a> {
-    type Item = GpkgFeature<'a>;
+impl Iterator for GpkgFeatureIterator {
+    type Item = GpkgFeature;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.rows.next() {
-            Ok(_) => todo!(),
-            Err(_) => todo!(),
-        }
+        self.features.next()
     }
 }
 
