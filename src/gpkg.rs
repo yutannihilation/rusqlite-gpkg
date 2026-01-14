@@ -142,15 +142,17 @@ impl Gpkg {
 
         for layer in &self.layers {
             let column_specs = self.get_column_specs(layer)?;
+            let order_column = if self.has_fid(layer)? { "fid" } else { "rowid" };
 
             let sql = format!(
-                r#"SELECT {} FROM "{}" ORDER BY fid LIMIT {VECTOR_SIZE} OFFSET ?"#,
+                r#"SELECT {} FROM "{}" ORDER BY {} LIMIT {VECTOR_SIZE} OFFSET ?"#,
                 column_specs
                     .iter()
                     .map(|s| format!(r#""{}""#, s.name))
                     .collect::<Vec<String>>()
                     .join(","),
                 layer,
+                order_column,
             );
 
             sources.push(GpkgDataSource {
@@ -162,6 +164,19 @@ impl Gpkg {
         }
 
         Ok(sources)
+    }
+}
+
+impl Gpkg {
+    fn has_fid<T: AsRef<str>>(&self, table_name: T) -> Result<bool, Box<dyn std::error::Error>> {
+        let conn = self.conn.lock().unwrap();
+        let query = format!(
+            "SELECT 1 FROM pragma_table_info('{}') WHERE name = 'fid' LIMIT 1",
+            table_name.as_ref()
+        );
+        let mut stmt = conn.conn.prepare(&query)?;
+        let mut rows = stmt.query([])?;
+        Ok(rows.next()?.is_some())
     }
 }
 
