@@ -5,6 +5,9 @@ edition = "2024"
 
 [dependencies]
 geo-traits = { version = "0.3.0", default-features = false }
-rusqlite = { version = "0.38.0", features = ["bundled"] }
+rusqlite = { version = "0.38.0", features = ["bundled", "functions"] }
 wkb = "0.9.2"
 wkt = "0.14"
+
+[dev-dependencies]
+geo-types = "0.7"

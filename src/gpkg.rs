@@ -4,6 +4,7 @@
 //! while keeping the API shape flexible for future write support.
 
 use crate::error::{GpkgError, Result};
+use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, ColumnType};
 
 use geo_traits::GeometryTrait;
@@ -24,6 +25,7 @@ impl Gpkg {
     /// Open a GeoPackage in read-only mode.
     pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = rusqlite::Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        register_spatial_functions(&conn)?;
         Ok(Self {
             conn,
             read_only: true,
@@ -34,6 +36,7 @@ impl Gpkg {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         // TODO: validate if the path exists at least. Hopefully, we should check if it's valid as a GeoPackage, but I'm not sure.
         let conn = rusqlite::Connection::open(path)?;
+        register_spatial_functions(&conn)?;
         Ok(Self {
             conn,
             read_only: false,
@@ -45,6 +48,7 @@ impl Gpkg {
         let conn = rusqlite::Connection::open(path)?;
 
         // TODO: initialize database with necessary tables and triggers as a GeoPackage
+        register_spatial_functions(&conn)?;
 
         Ok(Self {
             conn,
@@ -57,6 +61,7 @@ impl Gpkg {
         let conn = rusqlite::Connection::open_in_memory()?;
 
         // TODO: initialize database with necessary tables and triggers as a GeoPackage
+        register_spatial_functions(&conn)?;
 
         Ok(Self {
             conn,

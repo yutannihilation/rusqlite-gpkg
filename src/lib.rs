@@ -26,6 +26,7 @@
 //! (Not implemeted yet)
 mod error;
 mod gpkg;
+mod sql_functions;
 
 mod ogc_sql;
 mod types;
