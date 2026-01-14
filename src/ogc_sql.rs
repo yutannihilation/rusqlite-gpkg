@@ -1,16 +1,5 @@
 // cf. https://www.geopackage.org/spec140/index.html#table_definition_sql
 
-pub(crate) const SQL_GPKG_SPATIAL_REF_SYS: &str = "
-CREATE TABLE gpkg_spatial_ref_sys (
-  srs_name TEXT NOT NULL,
-  srs_id INTEGER PRIMARY KEY,
-  organization TEXT NOT NULL,
-  organization_coordsys_id INTEGER NOT NULL,
-  definition  TEXT NOT NULL,
-  description TEXT
-);
-";
-
 pub(crate) const SQL_GPKG_CONTENTS: &str = "
 CREATE TABLE gpkg_contents (
   table_name TEXT NOT NULL PRIMARY KEY,
@@ -24,6 +13,17 @@ CREATE TABLE gpkg_contents (
   max_y DOUBLE,
   srs_id INTEGER,
   CONSTRAINT fk_gc_r_srs_id FOREIGN KEY (srs_id) REFERENCES gpkg_spatial_ref_sys(srs_id)
+);
+";
+
+pub(crate) const SQL_GPKG_EXTENSIONS: &str = "
+CREATE TABLE gpkg_extensions (
+  table_name TEXT,
+  column_name TEXT,
+  extension_name TEXT NOT NULL,
+  definition TEXT NOT NULL,
+  scope TEXT NOT NULL,
+  CONSTRAINT ge_tce UNIQUE (table_name, column_name, extension_name)
 );
 ";
 
@@ -42,6 +42,43 @@ CREATE TABLE gpkg_geometry_columns (
 );
 ";
 
+pub(crate) const SQL_GPKG_SPATIAL_REF_SYS: &str = "
+CREATE TABLE gpkg_spatial_ref_sys (
+  srs_name TEXT NOT NULL,
+  srs_id INTEGER PRIMARY KEY,
+  organization TEXT NOT NULL,
+  organization_coordsys_id INTEGER NOT NULL,
+  definition  TEXT NOT NULL,
+  description TEXT
+);
+";
+
+// Unused, but necessary
+pub(crate) const SQL_GPKG_TILE_MATRIX: &str = "
+CREATE TABLE gpkg_tile_matrix(
+  table_name TEXT NOT NULL,
+  zoom_level INTEGER NOT NULL,
+  matrix_width INTEGER NOT NULL,
+  matrix_height INTEGER NOT NULL,
+  tile_width INTEGER NOT NULL,
+  tile_height INTEGER NOT NULL,
+  pixel_x_size DOUBLE NOT NULL,
+  pixel_y_size DOUBLE NOT NULL,
+  CONSTRAINT pk_ttm PRIMARY KEY(table_name, zoom_level),
+  CONSTRAINT fk_tmm_table_name FOREIGN KEY(table_name) REFERENCES gpkg_contents(table_name)
+);
+CREATE TRIGGER 'gpkg_tile_matrix_zoom_level_insert' BEFORE INSERT ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'insert on table ''gpkg_tile_matrix'' violates constraint: zoom_level cannot be less than 0') WHERE (NEW.zoom_level < 0); END;
+CREATE TRIGGER 'gpkg_tile_matrix_zoom_level_update' BEFORE UPDATE of zoom_level ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'update on table ''gpkg_tile_matrix'' violates constraint: zoom_level cannot be less than 0') WHERE (NEW.zoom_level < 0); END;
+CREATE TRIGGER 'gpkg_tile_matrix_matrix_width_insert' BEFORE INSERT ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'insert on table ''gpkg_tile_matrix'' violates constraint: matrix_width cannot be less than 1') WHERE (NEW.matrix_width < 1); END;
+CREATE TRIGGER 'gpkg_tile_matrix_matrix_width_update' BEFORE UPDATE OF matrix_width ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'update on table ''gpkg_tile_matrix'' violates constraint: matrix_width cannot be less than 1') WHERE (NEW.matrix_width < 1); END;
+CREATE TRIGGER 'gpkg_tile_matrix_matrix_height_insert' BEFORE INSERT ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'insert on table ''gpkg_tile_matrix'' violates constraint: matrix_height cannot be less than 1') WHERE (NEW.matrix_height < 1); END;
+CREATE TRIGGER 'gpkg_tile_matrix_matrix_height_update' BEFORE UPDATE OF matrix_height ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'update on table ''gpkg_tile_matrix'' violates constraint: matrix_height cannot be less than 1') WHERE (NEW.matrix_height < 1); END;
+CREATE TRIGGER 'gpkg_tile_matrix_pixel_x_size_insert' BEFORE INSERT ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'insert on table ''gpkg_tile_matrix'' violates constraint: pixel_x_size must be greater than 0') WHERE NOT (NEW.pixel_x_size > 0); END;
+CREATE TRIGGER 'gpkg_tile_matrix_pixel_x_size_update' BEFORE UPDATE OF pixel_x_size ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'update on table ''gpkg_tile_matrix'' violates constraint: pixel_x_size must be greater than 0') WHERE NOT (NEW.pixel_x_size > 0); END;
+CREATE TRIGGER 'gpkg_tile_matrix_pixel_y_size_insert' BEFORE INSERT ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'insert on table ''gpkg_tile_matrix'' violates constraint: pixel_y_size must be greater than 0') WHERE NOT (NEW.pixel_y_size > 0); END;
+CREATE TRIGGER 'gpkg_tile_matrix_pixel_y_size_update' BEFORE UPDATE OF pixel_y_size ON 'gpkg_tile_matrix' FOR EACH ROW BEGIN SELECT RAISE(ABORT, 'update on table ''gpkg_tile_matrix'' violates constraint: pixel_y_size must be greater than 0') WHERE NOT (NEW.pixel_y_size > 0); END;
+";
+
 // Unused, but necessary
 pub(crate) const SQL_GPKG_TILE_MATRIX_SET: &str = "
 CREATE TABLE gpkg_tile_matrix_set (
@@ -56,60 +93,27 @@ CREATE TABLE gpkg_tile_matrix_set (
 );
 ";
 
-// Unused, but necessary
-pub(crate) const SQL_GPKG_TILE_MATRIX: &str = "
-CREATE TABLE gpkg_tile_matrix (
-  table_name TEXT NOT NULL,
-  zoom_level INTEGER NOT NULL,
-  matrix_width INTEGER NOT NULL,
-  matrix_height INTEGER NOT NULL,
-  tile_width INTEGER NOT NULL,
-  tile_height INTEGER NOT NULL,
-  pixel_x_size DOUBLE NOT NULL,
-  pixel_y_size DOUBLE NOT NULL,
-  CONSTRAINT pk_ttm PRIMARY KEY (table_name, zoom_level),
-  CONSTRAINT fk_tmm_table_name FOREIGN KEY (table_name) REFERENCES gpkg_contents(table_name)
-);
-";
-
-pub(crate) const SQL_GPKG_EXTENSIONS: &str = "
-CREATE TABLE gpkg_extensions (
-  table_name TEXT,
-  column_name TEXT,
-  extension_name TEXT NOT NULL,
-  definition TEXT NOT NULL,
-  scope TEXT NOT NULL,
-  CONSTRAINT ge_tce UNIQUE (table_name, column_name, extension_name)
-);
-";
-
 // cf. https://www.geopackage.org/spec140/index.html#extension_rtree
-pub(crate) fn gpkg_rtree_create_sql(table: &str, column: &str) -> String {
+pub(crate) fn gpkg_rtree_create_sql(table: &str, geom_column: &str) -> String {
     format!(
-        "CREATE VIRTUAL TABLE rtree_{}_{} USING rtree(id, minx, maxx, miny, maxy);",
-        table, column
+        "CREATE VIRTUAL TABLE rtree_{t}_{c} USING rtree(id, minx, maxx, miny, maxy);",
+        t = table,
+        c = geom_column,
     )
 }
 
-pub(crate) fn gpkg_rtree_load_sql(table: &str, column: &str, id_column: &str) -> String {
+pub(crate) fn gpkg_rtree_load_sql(table: &str, geom_column: &str, id_column: &str) -> String {
     format!(
-        "INSERT OR REPLACE INTO rtree_{}_{}
-  SELECT {}, ST_MinX({}), ST_MaxX({}), ST_MinY({}), ST_MaxY({})
-  FROM {} WHERE {} NOT NULL AND NOT ST_IsEmpty({});",
-        table,
-        column,
-        id_column,
-        column,
-        column,
-        column,
-        column,
-        table,
-        column,
-        column
+        "INSERT OR REPLACE INTO rtree_{t}_{c}
+  SELECT {i}, ST_MinX({c}), ST_MaxX({c}), ST_MinY({c}), ST_MaxY({c})
+  FROM {t} WHERE {c} NOT NULL AND NOT ST_IsEmpty({c});",
+        t = table,
+        c = geom_column,
+        i = id_column
     )
 }
 
-pub(crate) fn gpkg_rtree_triggers_sql(table: &str, column: &str, id_column: &str) -> String {
+pub(crate) fn gpkg_rtree_triggers_sql(table: &str, geom_column: &str, id_column: &str) -> String {
     format!(
         "CREATE TRIGGER rtree_{t}_{c}_insert AFTER INSERT ON {t}
   WHEN (new.{c} NOT NULL AND NOT ST_IsEmpty(NEW.{c}))
@@ -178,7 +182,7 @@ BEGIN
   DELETE FROM rtree_{t}_{c} WHERE id = OLD.{i};
 END;",
         t = table,
-        c = column,
+        c = geom_column,
         i = id_column
     )
 }

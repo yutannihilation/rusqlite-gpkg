@@ -45,6 +45,7 @@ impl Gpkg {
 
     /// Create a new GeoPackage
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+        // TODO: raise an error if the file already exists
         let conn = rusqlite::Connection::open(path)?;
 
         // TODO: initialize database with necessary tables and triggers as a GeoPackage
