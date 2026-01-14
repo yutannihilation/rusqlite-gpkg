@@ -51,13 +51,6 @@ pub(crate) fn dimension_to_zm(dimension: wkb::reader::Dimension) -> (i8, i8) {
     }
 }
 
-// Note: the spec says z and m are
-//
-//   0: z/m values prohibited
-//   1: z/m values mandatory
-//   2: z/m values optional
-//
-// but I don't know how 2 can be handled
 #[inline]
 pub(crate) fn dimension_from_zm(z: i8, m: i8) -> Result<wkb::reader::Dimension, GpkgError> {
     match (z, m) {
@@ -65,7 +58,14 @@ pub(crate) fn dimension_from_zm(z: i8, m: i8) -> Result<wkb::reader::Dimension, 
         (1, 0) => Ok(wkb::reader::Dimension::Xyz),
         (0, 1) => Ok(wkb::reader::Dimension::Xym),
         (1, 1) => Ok(wkb::reader::Dimension::Xyzm),
-        (2, _) | (_, 2) | _ => Err(GpkgError::InvalidDimension { z, m }),
+        // Note: the spec says z and m are
+        //
+        //   0: z/m values prohibited
+        //   1: z/m values mandatory
+        //   2: z/m values optional
+        //
+        // but I don't know how 2 can be handled, just treat as an invalid value
+        _ => Err(GpkgError::InvalidDimension { z, m }),
     }
 }
 

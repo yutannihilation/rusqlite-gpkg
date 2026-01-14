@@ -197,7 +197,7 @@ VALUES
     }
 
     /// Delete a layer.
-    pub fn delete_layer<'a>(&'a self, layer_name: &str) -> Result<()> {
+    pub fn delete_layer(&self, layer_name: &str) -> Result<()> {
         if self.read_only {
             return Err(GpkgError::ReadOnly);
         }
@@ -430,7 +430,7 @@ impl GpkgFeature {
                 Type::Null,
             ))
         })?;
-        Ok(gpkg_geometry_to_wkb(bytes)?)
+        gpkg_geometry_to_wkb(bytes)
     }
 
     /// Read a property by index using rusqlite's `FromSql` conversion.
