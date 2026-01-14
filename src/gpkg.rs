@@ -405,7 +405,62 @@ impl<'a> GpkgLayer<'a> {
     }
 
     /// Insert a feature with geometry and ordered property values.
-    pub fn insert<G, I>(&self, geometry: G, params: I) -> Result<usize>
+    pub fn insert<G, I>(&self, geometry: G, params: I) -> Result<()>
+    where
+        G: GeometryTrait<T = f64>,
+        I: IntoIterator<Item = Value>,
+    {
+        let (values, column_names) = self.feature_values_and_columns(geometry, params)?;
+
+        let columns = column_names
+            .iter()
+            .map(|name| format!(r#""{}""#, name))
+            .collect::<Vec<String>>()
+            .join(",");
+        let placeholders = (1..=column_names.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<String>>()
+            .join(",");
+        let sql = sql_insert_feature(&self.layer_name, &columns, &placeholders);
+
+        let mut stmt = self.conn.conn.prepare(&sql)?;
+        stmt.execute(params_from_iter(values))?;
+
+        Ok(())
+    }
+
+    /// Update the feature with geometry and ordered property values.
+    pub fn update<G, I>(&self, geometry: G, params: I, id: i64) -> Result<()>
+    where
+        G: GeometryTrait<T = f64>,
+        I: IntoIterator<Item = Value>,
+    {
+        let (mut values, column_names) = self.feature_values_and_columns(geometry, params)?;
+        values.push(Value::Integer(id));
+
+        let assignments = column_names
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| format!(r#""{}"=?{}"#, name, idx + 1))
+            .collect::<Vec<String>>()
+            .join(",");
+        let id_idx = values.len();
+        let sql = format!(
+            r#"UPDATE "{}" SET {} WHERE "{}"=?{}"#,
+            self.layer_name, assignments, self.primary_key_column, id_idx
+        );
+
+        let mut stmt = self.conn.conn.prepare(&sql)?;
+        stmt.execute(params_from_iter(values))?;
+
+        Ok(())
+    }
+
+    fn feature_values_and_columns<G, I>(
+        &self,
+        geometry: G,
+        params: I,
+    ) -> Result<(Vec<Value>, Vec<String>)>
     where
         G: GeometryTrait<T = f64>,
         I: IntoIterator<Item = Value>,
@@ -433,19 +488,7 @@ impl<'a> GpkgLayer<'a> {
         column_names.push(self.geometry_column.clone());
         column_names.extend(self.other_columns.iter().map(|col| col.name.clone()));
 
-        let columns = column_names
-            .iter()
-            .map(|name| format!(r#""{}""#, name))
-            .collect::<Vec<String>>()
-            .join(",");
-        let placeholders = (1..=column_names.len())
-            .map(|i| format!("?{i}"))
-            .collect::<Vec<String>>()
-            .join(",");
-        let sql = sql_insert_feature(&self.layer_name, &columns, &placeholders);
-
-        let mut stmt = self.conn.conn.prepare(&sql)?;
-        Ok(stmt.execute(params_from_iter(values))?)
+        Ok((values, column_names))
     }
 
     fn ensure_writable(&self) -> Result<()> {
