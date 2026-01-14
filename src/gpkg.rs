@@ -4,7 +4,7 @@
 //! while keeping the API shape flexible for future write support.
 
 use crate::error::{GpkgError, Result};
-use crate::ogc_sql::initialize_gpkg;
+use crate::ogc_sql::{execute_rtree_sqls, initialize_gpkg};
 use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, ColumnType};
 
@@ -111,7 +111,86 @@ impl Gpkg {
         srs_id: u32,
         other_column_specs: &[ColumnSpec],
     ) -> Result<GpkgLayer<'a>> {
-        todo!()
+        if self.read_only {
+            return Err(GpkgError::ReadOnly);
+        }
+
+        let geometry_type_name = match geometry_type {
+            wkb::reader::GeometryType::GeometryCollection => "GEOMETRYCOLLECTION",
+            wkb::reader::GeometryType::Point => "POINT",
+            wkb::reader::GeometryType::LineString => "LINESTRING",
+            wkb::reader::GeometryType::Polygon => "POLYGON",
+            wkb::reader::GeometryType::MultiPoint => "MULTIPOINT",
+            wkb::reader::GeometryType::MultiLineString => "MULTILINESTRING",
+            wkb::reader::GeometryType::MultiPolygon => "MULTIPOLYGON",
+            _ => unreachable!(),
+        };
+
+        let (z, m) = match geometry_dimension {
+            wkb::reader::Dimension::Xy => (0, 0),
+            wkb::reader::Dimension::Xyz => (1, 0),
+            wkb::reader::Dimension::Xym => (0, 1),
+            wkb::reader::Dimension::Xyzm => (1, 1),
+        };
+
+        let mut column_defs = Vec::with_capacity(other_column_specs.len() + 2);
+        column_defs.push("fid INTEGER PRIMARY KEY AUTOINCREMENT".to_string());
+        column_defs.push(format!(r#""{}" BLOB"#, geometry_column));
+        for spec in other_column_specs {
+            let col_type = match spec.column_type {
+                ColumnType::Integer => "INTEGER",
+                ColumnType::Double => "DOUBLE",
+                ColumnType::Varchar => "TEXT",
+                ColumnType::Boolean => "BOOLEAN",
+                ColumnType::Geometry => "GEOMETRY",
+            };
+            column_defs.push(format!(r#""{}" {col_type}"#, spec.name));
+        }
+
+        let create_sql = format!(
+            r#"CREATE TABLE "{}" ({})"#,
+            layer_name,
+            column_defs.join(", ")
+        );
+        self.conn.execute_batch(&create_sql)?;
+
+        self.conn.execute(
+            r#"
+INSERT INTO gpkg_contents
+  (table_name, data_type, identifier, description, srs_id)
+VALUES
+  (?1, 'features', ?2, '', ?3)
+"#,
+            rusqlite::params![layer_name, layer_name, srs_id],
+        )?;
+        self.conn.execute(
+            r#"
+INSERT INTO gpkg_geometry_columns
+  (table_name, column_name, geometry_type_name, srs_id, z, m)
+VALUES
+  (?1, ?2, ?3, ?4, ?5, ?6)
+"#,
+            rusqlite::params![
+                layer_name,
+                geometry_column,
+                geometry_type_name,
+                srs_id,
+                z,
+                m
+            ],
+        )?;
+
+        execute_rtree_sqls(&self.conn, layer_name, &geometry_column, "fid")?;
+
+        Ok(GpkgLayer {
+            conn: self,
+            layer_name: layer_name.to_string(),
+            geometry_column,
+            geometry_type,
+            geometry_dimension,
+            srs_id,
+            other_columns: other_column_specs.to_vec(),
+        })
     }
 
     /// Delete a layer.

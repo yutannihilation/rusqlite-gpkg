@@ -196,3 +196,15 @@ END;",
         i = id_column
     )
 }
+
+pub(crate) fn execute_rtree_sqls(
+    conn: &rusqlite::Connection,
+    table: &str,
+    geom_column: &str,
+    id_column: &str,
+) -> rusqlite::Result<()> {
+    conn.execute_batch(&gpkg_rtree_create_sql(table, geom_column))?;
+    conn.execute_batch(&gpkg_rtree_load_sql(table, geom_column, id_column))?;
+    conn.execute_batch(&gpkg_rtree_triggers_sql(table, geom_column, id_column))?;
+    Ok(())
+}
