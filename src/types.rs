@@ -273,16 +273,18 @@ impl<'a> TryFrom<&'a Value> for Wkb<'a> {
 
     #[inline]
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
-        let bytes = match value {
-            Value::Geometry(bytes) | Value::Blob(bytes) => bytes.as_slice(),
+        match value {
+            Value::Geometry(bytes) => {
+                return Ok(crate::gpkg::gpkg_geometry_to_wkb(bytes.as_slice())?);
+            }
+            Value::Blob(bytes) => {
+                let bytes = bytes.as_slice();
+                if bytes.len() >= 4 && bytes[0] == 0x47 && bytes[1] == 0x50 {
+                    return Ok(crate::gpkg::gpkg_geometry_to_wkb(bytes)?);
+                }
+                return Ok(Wkb::try_new(bytes)?);
+            }
             _ => return Err(invalid_type("Wkb", value)),
-        };
-
-        // TODO: Value::Geometry doesn't require this check as it's already proven
-        if bytes.len() >= 4 && bytes[0] == 0x47 && bytes[1] == 0x50 {
-            return Ok(crate::gpkg::gpkg_geometry_to_wkb(bytes)?);
         }
-
-        Ok(Wkb::try_new(bytes)?)
     }
 }
