@@ -570,6 +570,57 @@ mod tests {
     }
 
     #[test]
+    fn rtree_updates_on_insert_update_delete() -> Result<()> {
+        let gpkg = Gpkg::new_in_memory()?;
+        ensure_srs_4326(&gpkg)?;
+        let columns: Vec<ColumnSpec> = Vec::new();
+        let layer = gpkg.new_layer(
+            "rtree_points",
+            "geom".to_string(),
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        let point_a = Point::new(1.5, -2.0);
+        layer.insert(point_a, Vec::<Value>::new())?;
+        let id = layer.conn.connection().last_insert_rowid();
+
+        let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
+            "SELECT minx, maxx, miny, maxy FROM rtree_rtree_points_geom WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+        assert_eq!(minx, 1.5);
+        assert_eq!(maxx, 1.5);
+        assert_eq!(miny, -2.0);
+        assert_eq!(maxy, -2.0);
+
+        let point_b = Point::new(-4.0, 6.25);
+        layer.update(point_b, Vec::<Value>::new(), id)?;
+        let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
+            "SELECT minx, maxx, miny, maxy FROM rtree_rtree_points_geom WHERE id = ?1",
+            [id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )?;
+        assert_eq!(minx, -4.0);
+        assert_eq!(maxx, -4.0);
+        assert_eq!(miny, 6.25);
+        assert_eq!(maxy, 6.25);
+
+        layer.truncate()?;
+        let count: i64 = layer.conn.connection().query_row(
+            "SELECT COUNT(*) FROM rtree_rtree_points_geom",
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(count, 0);
+
+        Ok(())
+    }
+
+    #[test]
     fn truncates_rows() -> Result<()> {
         let gpkg = Gpkg::new_in_memory()?;
         ensure_srs_4326(&gpkg)?;
