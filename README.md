@@ -7,6 +7,10 @@
 
 Small GeoPackage reader/writer built on top of [rusqlite](https://crates.io/crates/rusqlite).
 
+## Disclaimer
+
+Most of the implementation is coded by Codex, while the primary idea is based on my own work in <https://github.com/yutannihilation/duckdb-ext-st-read-multi/pulls>. This probably requires more testing against real data; feedback is welcome!
+
 ## Example
 
 ### Reader
