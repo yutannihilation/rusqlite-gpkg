@@ -32,7 +32,7 @@
 //!
 //! ```no_run
 //! use geo_types::Point;
-//! use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg};
+//! use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, params};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let gpkg = Gpkg::new("data.gpkg")?;
@@ -58,7 +58,7 @@
 //!     )?;
 //!
 //!     // You can pass whatever object that implements GeometryTrait
-//!     layer.insert(Point::new(1.0, 2.0), &[&"alpha", &7_i64])?;
+//!     layer.insert(Point::new(1.0, 2.0), params!["alpha", 7_i64])?;
 //!
 //!     Ok(())
 //! }
@@ -77,5 +77,5 @@ pub use sql_functions::register_spatial_functions;
 pub use types::{ColumnSpec, ColumnType};
 
 // Re-export types used in public fields to keep the public API stable.
-pub use rusqlite::types::Value;
+pub use rusqlite::{params, types::Value};
 pub use wkb::reader::{Dimension, GeometryType};
