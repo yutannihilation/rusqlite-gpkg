@@ -27,8 +27,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             write_geometry(&mut wkt, &wkb)?;
             values.push(format!("{}={wkt}", layer.geometry_column));
 
-            for (idx, column) in layer.property_columns.iter().enumerate() {
-                let value = feature.property::<Value>(idx)?;
+            for column in &layer.property_columns {
+                let value = feature.property::<Value>(&column.name)?;
                 values.push(format!("{}={}", column.name, format_value(&value)));
             }
 

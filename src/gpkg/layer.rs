@@ -6,6 +6,8 @@ use rusqlite::{
     params_from_iter,
     types::{Type, Value},
 };
+use std::collections::HashMap;
+use std::sync::Arc;
 use wkb::reader::Wkb;
 
 use super::{Gpkg, GpkgFeature, GpkgFeatureIterator, wkb_to_gpkg_geometry};
@@ -21,6 +23,7 @@ pub struct GpkgLayer<'a> {
     pub geometry_dimension: wkb::reader::Dimension,
     pub srs_id: u32,
     pub property_columns: Vec<ColumnSpec>,
+    pub(super) property_index_by_name: Arc<HashMap<String, usize>>,
     pub(super) insert_sql: String,
     pub(super) update_sql: String,
 }
@@ -46,19 +49,12 @@ impl<'a> GpkgLayer<'a> {
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn features(&self) -> Result<GpkgFeatureIterator> {
-        let column_specs = self
-            .conn
-            .get_column_specs(&self.layer_name, &self.geometry_column)?;
-
-        let columns = column_specs
-            .other_columns
-            .iter()
-            .map(|spec| spec.name.as_str());
+        let columns = self.property_columns.iter().map(|spec| spec.name.as_str());
 
         let sql = sql_select_features(
             &self.layer_name,
-            &column_specs.geometry_column,
-            &column_specs.primary_key_column,
+            &self.geometry_column,
+            &self.primary_key_column,
             columns,
         );
         let mut stmt = self.conn.connection().prepare(&sql)?;
@@ -66,18 +62,18 @@ impl<'a> GpkgLayer<'a> {
             .query_map([], |row| {
                 let mut id: Option<i64> = None;
                 let mut geometry: Option<Vec<u8>> = None;
-                let mut properties = Vec::with_capacity(column_specs.other_columns.len());
-                let row_len = column_specs.other_columns.len() + 2;
+                let mut properties = Vec::with_capacity(self.property_columns.len());
+                let row_len = self.property_columns.len() + 2;
 
                 for idx in 0..row_len {
                     let value_ref = row.get_ref(idx)?;
                     let value = Value::from(value_ref);
                     let name = if idx == GEOMETRY_INDEX {
-                        column_specs.geometry_column.as_str()
+                        self.geometry_column.as_str()
                     } else if idx == PRIMARY_INDEX {
-                        column_specs.primary_key_column.as_str()
+                        self.primary_key_column.as_str()
                     } else {
-                        column_specs.other_columns[idx - 2].name.as_str()
+                        self.property_columns[idx - 2].name.as_str()
                     };
 
                     if idx == GEOMETRY_INDEX {
@@ -120,6 +116,7 @@ impl<'a> GpkgLayer<'a> {
                     id,
                     geometry,
                     properties,
+                    property_index_by_name: Arc::clone(&self.property_index_by_name),
                 })
             })?
             .collect::<std::result::Result<Vec<GpkgFeature>, _>>()?;
@@ -252,6 +249,16 @@ impl<'a> GpkgLayer<'a> {
         )
     }
 
+    pub(crate) fn build_property_index_by_name(
+        property_columns: &[ColumnSpec],
+    ) -> HashMap<String, usize> {
+        let mut property_index_by_name = HashMap::with_capacity(property_columns.len());
+        for (idx, column) in property_columns.iter().enumerate() {
+            property_index_by_name.insert(column.name.clone(), idx);
+        }
+        property_index_by_name
+    }
+
     fn geom_from_geometry<G>(&self, geometry: G, property_count: usize) -> Result<Vec<u8>>
     where
         G: GeometryTrait<T = f64>,
@@ -292,10 +299,6 @@ mod tests {
 
     fn generated_gpkg_path() -> &'static str {
         "src/test/test_generated.gpkg"
-    }
-
-    fn property_index(columns: &[super::ColumnSpec], name: &str) -> Option<usize> {
-        columns.iter().position(|col| col.name == name)
     }
 
     fn gpkg_blob_from_geometry<G: GeometryTrait<T = f64>>(
@@ -370,12 +373,6 @@ mod tests {
     fn reads_geometry_and_properties_from_points() -> Result<()> {
         let gpkg = Gpkg::open_read_only(generated_gpkg_path())?;
         let layer = gpkg.open_layer("points")?;
-        let columns = &layer.property_columns;
-
-        let name_idx = property_index(columns, "name").expect("name column");
-        let active_idx = property_index(columns, "active").expect("active column");
-        let note_idx = property_index(columns, "note").expect("note column");
-
         let mut iter = layer.features()?;
         let feature = iter.next().expect("first feature");
 
@@ -383,10 +380,10 @@ mod tests {
         assert_eq!(geom.geometry_type(), GeometryType::Point);
 
         assert_eq!(feature.id(), 1);
-        assert_eq!(feature.property::<String>(name_idx)?, "alpha");
-        assert_eq!(feature.property::<bool>(active_idx)?, true);
+        assert_eq!(feature.property::<String>("name")?, "alpha");
+        assert_eq!(feature.property::<bool>("active")?, true);
 
-        let note = feature.property::<Value>(note_idx)?;
+        let note = feature.property::<Value>("note")?;
         assert_eq!(note, Value::Text("first".to_string()));
 
         Ok(())

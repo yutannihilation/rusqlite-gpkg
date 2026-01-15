@@ -95,7 +95,7 @@ let id = feature.id();
 let geom = feature.geometry()?;
 let mut wkt = String::new();
 write_geometry(&mut wkt, &geom)?;
-let name: String = feature.property(0)?;
+let name: String = feature.property("name")?;
 # Ok::<(), rusqlite_gpkg::GpkgError>(())
 ```
 
@@ -127,8 +127,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             write_geometry(&mut wkt, &geom)?;
             println!("{layer_name}: {wkt}");
 
-            for (idx, column) in layer.property_columns.iter().enumerate() {
-                let value: Value = feature.property(idx)?;
+            for column in &layer.property_columns {
+                let value: Value = feature.property(&column.name)?;
                 println!("  {} = {:?}", column.name, value);
             }
         }

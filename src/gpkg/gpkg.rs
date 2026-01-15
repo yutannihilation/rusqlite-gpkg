@@ -12,6 +12,7 @@ use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, ColumnSpecs};
 use rusqlite::OpenFlags;
 use std::path::Path;
+use std::sync::Arc;
 
 use super::layer::GpkgLayer;
 
@@ -216,6 +217,8 @@ impl Gpkg {
             &primary_key_column,
             &other_columns,
         );
+        let property_index_by_name =
+            Arc::new(GpkgLayer::build_property_index_by_name(&other_columns));
 
         Ok(GpkgLayer {
             conn: self,
@@ -226,6 +229,7 @@ impl Gpkg {
             geometry_dimension,
             srs_id,
             property_columns: other_columns,
+            property_index_by_name,
             insert_sql,
             update_sql,
         })
@@ -320,6 +324,8 @@ impl Gpkg {
             GpkgLayer::build_insert_sql(layer_name, &geometry_column, other_column_specs);
         let update_sql =
             GpkgLayer::build_update_sql(layer_name, &geometry_column, "fid", other_column_specs);
+        let property_index_by_name =
+            Arc::new(GpkgLayer::build_property_index_by_name(other_column_specs));
 
         Ok(GpkgLayer {
             conn: self,
@@ -330,6 +336,7 @@ impl Gpkg {
             geometry_dimension,
             srs_id,
             property_columns: other_column_specs.to_vec(),
+            property_index_by_name,
             insert_sql,
             update_sql,
         })
@@ -644,16 +651,16 @@ mod tests {
         assert_eq!(collected.len(), 2);
 
         assert_eq!(collected[0].id(), 1);
-        assert_eq!(collected[0].property::<String>(0)?, "alpha");
-        assert_eq!(collected[0].property::<i64>(1)?, 7);
+        assert_eq!(collected[0].property::<String>("name")?, "alpha");
+        assert_eq!(collected[0].property::<i64>("value")?, 7);
         assert_eq!(
             collected[0].geometry()?.geometry_type(),
             GeometryType::Point
         );
 
         assert_eq!(collected[1].id(), 2);
-        assert_eq!(collected[1].property::<String>(0)?, "beta");
-        assert_eq!(collected[1].property::<i64>(1)?, 9);
+        assert_eq!(collected[1].property::<String>("name")?, "beta");
+        assert_eq!(collected[1].property::<i64>("value")?, 9);
         assert_eq!(
             collected[1].geometry()?.geometry_type(),
             GeometryType::Point
@@ -706,16 +713,16 @@ mod tests {
         assert_eq!(collected.len(), 2);
 
         assert_eq!(collected[0].id(), 1);
-        assert_eq!(collected[0].property::<String>(0)?, "alpha");
-        assert_eq!(collected[0].property::<i64>(1)?, 7);
+        assert_eq!(collected[0].property::<String>("name")?, "alpha");
+        assert_eq!(collected[0].property::<i64>("value")?, 7);
         assert_eq!(
             collected[0].geometry()?.geometry_type(),
             GeometryType::Point
         );
 
         assert_eq!(collected[1].id(), 2);
-        assert_eq!(collected[1].property::<String>(0)?, "beta");
-        assert_eq!(collected[1].property::<i64>(1)?, 9);
+        assert_eq!(collected[1].property::<String>("name")?, "beta");
+        assert_eq!(collected[1].property::<i64>("value")?, 9);
         assert_eq!(
             collected[1].geometry()?.geometry_type(),
             GeometryType::Point

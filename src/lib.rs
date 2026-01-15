@@ -30,7 +30,7 @@
 //! let feature = layer.features()?.next().expect("feature");
 //! let _id = feature.id();
 //! let _geom = feature.geometry()?;
-//! let _name: String = feature.property(0)?;
+//! let _name: String = feature.property("name")?;
 //! # Ok::<(), rusqlite_gpkg::GpkgError>(())
 //! ```
 //!
@@ -52,8 +52,8 @@
 //!             write_geometry(&mut wkt, &geom)?;
 //!             println!("{layer_name}: {wkt}");
 //!
-//!             for (idx, column) in layer.property_columns.iter().enumerate() {
-//!                 let value: Value = feature.property(idx)?;
+//!             for column in &layer.property_columns {
+//!                 let value: Value = feature.property(&column.name)?;
 //!                 println!("  {} = {:?}", column.name, value);
 //!             }
 //!         }
@@ -111,8 +111,8 @@ mod types;
 pub use error::{GpkgError, Result};
 pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureIterator, GpkgLayer};
 pub use sql_functions::register_spatial_functions;
-pub use types::{ColumnSpec, ColumnType};
+pub use types::{ColumnSpec, ColumnType, Value};
 
 // Re-export types used in public fields to keep the public API stable.
-pub use rusqlite::{params, types::Value};
+pub use rusqlite::params;
 pub use wkb::reader::{Dimension, GeometryType};

@@ -1,5 +1,8 @@
+use crate::Value;
 use crate::error::{GpkgError, Result};
-use rusqlite::types::{FromSql, FromSqlError, Type, Value, ValueRef};
+use rusqlite::types::Type;
+use std::collections::HashMap;
+use std::sync::Arc;
 use wkb::reader::Wkb;
 
 /// A single feature with geometry bytes and owned properties.
@@ -7,6 +10,7 @@ pub struct GpkgFeature {
     pub(super) id: i64,
     pub(super) geometry: Option<Vec<u8>>,
     pub(super) properties: Vec<Value>,
+    pub(super) property_index_by_name: Arc<HashMap<String, usize>>,
 }
 
 impl GpkgFeature {
@@ -49,7 +53,7 @@ impl GpkgFeature {
         gpkg_geometry_to_wkb(bytes)
     }
 
-    /// Read a property by index using rusqlite's `FromSql` conversion.
+    /// Read a property by name using rusqlite's `FromSql` conversion.
     ///
     /// Example:
     /// ```no_run
@@ -58,52 +62,38 @@ impl GpkgFeature {
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
     /// let layer = gpkg.open_layer("points")?;
     /// let feature = layer.features()?.next().expect("feature");
-    /// let value: String = feature.property(0)?;
+    /// let value: String = feature.property("name")?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn property<T: FromSql>(&self, idx: usize) -> Result<T> {
-        let value = self
-            .properties
-            .get(idx)
-            .ok_or(GpkgError::Sql(rusqlite::Error::InvalidColumnIndex(idx)))?;
-        let value_ref = ValueRef::from(value);
-        FromSql::column_result(value_ref).map_err(|err| match err {
-            FromSqlError::InvalidType => GpkgError::Sql(rusqlite::Error::InvalidColumnType(
-                idx,
-                format!("column {idx}"),
-                value_ref.data_type(),
-            )),
-            FromSqlError::OutOfRange(i) => {
-                GpkgError::Sql(rusqlite::Error::IntegralValueOutOfRange(idx, i))
-            }
-            FromSqlError::Other(err) => GpkgError::Sql(rusqlite::Error::FromSqlConversionFailure(
-                idx,
-                value_ref.data_type(),
-                err,
-            )),
-            FromSqlError::InvalidBlobSize { .. } => {
-                GpkgError::Sql(rusqlite::Error::FromSqlConversionFailure(
-                    idx,
-                    value_ref.data_type(),
-                    Box::new(err),
-                ))
-            }
-            _ => GpkgError::Message("unsupported sqlite type conversion".to_string()),
-        })
+    pub fn property(&self, name: &str) -> Option<&Value> {
+        match self.property_index_by_name.get(name) {
+            Some(idx) => self.properties.get(*idx),
+            None => None,
+        }
+    }
+
+    /// Return the ordered property values as stored in the feature.
+    pub fn properties(&self) -> &[Value] {
+        &self.properties
     }
 
     #[cfg(test)]
-    fn new<G, I>(id: i64, geometry: G, properties: I) -> Result<Self>
+    fn new<G, I>(id: i64, geometry: G, properties: I, property_names: &[&str]) -> Result<Self>
     where
         G: geo_traits::GeometryTrait<T = f64>,
         I: IntoIterator<Item = Value>,
     {
         let mut buf = Vec::new();
         wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
+        let mut property_index_by_name = HashMap::with_capacity(property_names.len());
+        for (idx, name) in property_names.iter().enumerate() {
+            property_index_by_name.insert((*name).to_string(), idx);
+        }
         Ok(Self {
             id,
             geometry: Some(buf),
             properties: properties.into_iter().collect(),
+            property_index_by_name: Arc::new(property_index_by_name),
         })
     }
 }
@@ -191,13 +181,14 @@ mod tests {
     fn property_invalid_index_reports_error() -> Result<()> {
         use rusqlite::types::Value;
 
-        let feature = super::GpkgFeature::new(1, Point::new(0.0, 0.0), vec![Value::Integer(1)])?;
+        let feature =
+            super::GpkgFeature::new(1, Point::new(0.0, 0.0), vec![Value::Integer(1)], &["value"])?;
         let err = feature
-            .property::<i64>(2)
-            .expect_err("invalid index should fail");
+            .property::<i64>("missing")
+            .expect_err("missing name should fail");
         assert!(matches!(
             err,
-            crate::error::GpkgError::Sql(rusqlite::Error::InvalidColumnIndex(2))
+            crate::error::GpkgError::Sql(rusqlite::Error::InvalidColumnName(_))
         ));
         Ok(())
     }
