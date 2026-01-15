@@ -71,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
      // You can pass whatever object that implements GeometryTrait
-    layer.insert(Point::new(1.0, 2.0), ("alpha", 7_i64))?;
+    layer.insert(Point::new(1.0, 2.0), &[&"alpha", &7_i64])?;
 
     Ok(())
 }

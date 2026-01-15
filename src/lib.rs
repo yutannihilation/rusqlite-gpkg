@@ -58,7 +58,7 @@
 //!     )?;
 //!
 //!     // You can pass whatever object that implements GeometryTrait
-//!     layer.insert(Point::new(1.0, 2.0), ("alpha", 7_i64))?;
+//!     layer.insert(Point::new(1.0, 2.0), &[&"alpha", &7_i64])?;
 //!
 //!     Ok(())
 //! }
@@ -74,7 +74,7 @@ mod types;
 pub use error::{GpkgError, Result};
 pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureIterator, GpkgLayer};
 pub use sql_functions::register_spatial_functions;
-pub use types::{ColumnSpec, ColumnType, RusqliteValues};
+pub use types::{ColumnSpec, ColumnType};
 
 // Re-export types used in public fields to keep the public API stable.
 pub use rusqlite::types::Value;

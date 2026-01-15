@@ -241,7 +241,7 @@ impl Gpkg {
     ///     4326,
     ///     &columns,
     /// )?;
-    /// layer.insert(Point::new(1.0, 2.0), ("alpha",))?;
+    /// layer.insert(Point::new(1.0, 2.0), &[&"alpha"])?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn new_layer<'a>(
@@ -601,8 +601,12 @@ mod tests {
             &columns,
         )?;
 
-        layer.insert(Point::new(1.0, 2.0), ("alpha".to_string(), 7_i64))?;
-        layer.insert(Point::new(-3.0, 4.5), ("beta".to_string(), 9_i64))?;
+        let name_a = "alpha".to_string();
+        let value_a = 7_i64;
+        layer.insert(Point::new(1.0, 2.0), &[&name_a, &value_a])?;
+        let name_b = "beta".to_string();
+        let value_b = 9_i64;
+        layer.insert(Point::new(-3.0, 4.5), &[&name_b, &value_b])?;
 
         let dump = gpkg.to_bytes()?;
         let mut path = std::env::temp_dir();
@@ -665,8 +669,12 @@ mod tests {
             &columns,
         )?;
 
-        layer.insert(Point::new(1.0, 2.0), ("alpha".to_string(), 7_i64))?;
-        layer.insert(Point::new(-3.0, 4.5), ("beta".to_string(), 9_i64))?;
+        let name_a = "alpha".to_string();
+        let value_a = 7_i64;
+        layer.insert(Point::new(1.0, 2.0), &[&name_a, &value_a])?;
+        let name_b = "beta".to_string();
+        let value_b = 9_i64;
+        layer.insert(Point::new(-3.0, 4.5), &[&name_b, &value_b])?;
 
         let dump = gpkg.to_bytes()?;
 

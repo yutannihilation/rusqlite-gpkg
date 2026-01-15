@@ -1,6 +1,6 @@
 use crate::error::{GpkgError, Result};
 use crate::ogc_sql::{sql_delete_all, sql_insert_feature, sql_select_features};
-use crate::types::{ColumnSpec, RusqliteValues};
+use crate::types::ColumnSpec;
 use geo_traits::GeometryTrait;
 use rusqlite::{
     params_from_iter,
@@ -153,15 +153,35 @@ impl<'a> GpkgLayer<'a> {
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
     /// let layer = gpkg.open_layer("points")?;
-    /// layer.insert(Point::new(1.0, 2.0), ("alpha", true))?;
+    /// layer.insert(Point::new(1.0, 2.0), &[&"alpha", &true])?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn insert<G, P>(&self, geometry: G, params: P) -> Result<()>
+    pub fn insert<G>(&self, geometry: G, properties: &[&dyn rusqlite::ToSql]) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
-        P: RusqliteValues,
     {
-        let (values, column_names) = self.feature_values_and_columns(geometry, params)?;
+        self.ensure_writable()?;
+
+        let mut buf = Vec::new();
+        wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
+        let wkb = Wkb::try_new(&buf)?;
+        let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
+
+        if properties.len() != self.property_columns.len() {
+            return Err(GpkgError::InvalidPropertyCount {
+                expected: self.property_columns.len(),
+                got: properties.len(),
+            });
+        }
+
+        let mut values: Vec<&dyn rusqlite::ToSql> =
+            Vec::with_capacity(self.property_columns.len() + 1);
+        values.push(&geom);
+        values.extend(properties);
+
+        let mut column_names = Vec::with_capacity(self.property_columns.len() + 1);
+        column_names.push(self.geometry_column.clone());
+        column_names.extend(self.property_columns.iter().map(|col| col.name.clone()));
 
         let columns = column_names
             .iter()
@@ -188,50 +208,17 @@ impl<'a> GpkgLayer<'a> {
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
     /// let layer = gpkg.open_layer("points")?;
-    /// layer.update(Point::new(3.0, 4.0), ("beta", false), 1)?;
+    /// layer.update(Point::new(3.0, 4.0), &[&"beta", &false], 1)?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn update<G, P>(&self, geometry: G, params: P, id: i64) -> Result<()>
-    where
-        G: GeometryTrait<T = f64>,
-        P: RusqliteValues,
-    {
-        let (mut values, column_names) = self.feature_values_and_columns(geometry, params)?;
-        values.push(Value::Integer(id));
-
-        let assignments = column_names
-            .iter()
-            .enumerate()
-            .map(|(idx, name)| format!(r#""{}"=?{}"#, name, idx + 1))
-            .collect::<Vec<String>>()
-            .join(",");
-        let id_idx = values.len();
-        let sql = format!(
-            r#"UPDATE "{}" SET {} WHERE "{}"=?{}"#,
-            self.layer_name, assignments, self.primary_key_column, id_idx
-        );
-
-        let mut stmt = self.conn.connection().prepare(&sql)?;
-        stmt.execute(params_from_iter(values))?;
-
-        Ok(())
-    }
-
-    fn ensure_writable(&self) -> Result<()> {
-        if self.conn.is_read_only() {
-            return Err(GpkgError::ReadOnly);
-        }
-        Ok(())
-    }
-
-    fn feature_values_and_columns<G, P>(
+    pub fn update<G>(
         &self,
         geometry: G,
-        params: P,
-    ) -> Result<(Vec<Value>, Vec<String>)>
+        properties: &[&dyn rusqlite::ToSql],
+        id: i64,
+    ) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
-        P: RusqliteValues,
     {
         self.ensure_writable()?;
 
@@ -240,7 +227,6 @@ impl<'a> GpkgLayer<'a> {
         let wkb = Wkb::try_new(&buf)?;
         let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
 
-        let properties: Vec<Value> = params.into_values()?;
         if properties.len() != self.property_columns.len() {
             return Err(GpkgError::InvalidPropertyCount {
                 expected: self.property_columns.len(),
@@ -248,15 +234,39 @@ impl<'a> GpkgLayer<'a> {
             });
         }
 
-        let mut values = Vec::with_capacity(self.property_columns.len() + 1);
-        values.push(Value::Blob(geom));
+        let mut values: Vec<&dyn rusqlite::ToSql> =
+            Vec::with_capacity(self.property_columns.len() + 2);
+        values.push(&geom);
         values.extend(properties);
+        let id_value = id;
+        values.push(&id_value);
 
         let mut column_names = Vec::with_capacity(self.property_columns.len() + 1);
         column_names.push(self.geometry_column.clone());
         column_names.extend(self.property_columns.iter().map(|col| col.name.clone()));
 
-        Ok((values, column_names))
+        let assignments = column_names
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| format!(r#""{}"=?{}"#, name, idx + 1))
+            .collect::<Vec<String>>()
+            .join(",");
+        let id_idx = column_names.len() + 1;
+        let sql = format!(
+            r#"UPDATE "{}" SET {} WHERE "{}"=?{}"#,
+            self.layer_name, assignments, self.primary_key_column, id_idx
+        );
+
+        let mut stmt = self.conn.connection().prepare(&sql)?;
+        stmt.execute(params_from_iter(values))?;
+        Ok(())
+    }
+
+    fn ensure_writable(&self) -> Result<()> {
+        if self.conn.is_read_only() {
+            return Err(GpkgError::ReadOnly);
+        }
+        Ok(())
     }
 }
 
@@ -316,7 +326,7 @@ mod tests {
         wkb::writer::write_geometry(&mut expected_wkb_bytes, &geometry, &Default::default())?;
         let expected_wkb = Wkb::try_new(&expected_wkb_bytes)?;
 
-        layer.insert(geometry, Vec::<Value>::new())?;
+        layer.insert(geometry, &[])?;
 
         let geom_blob: Vec<u8> = layer.conn.connection().query_row(
             &format!(r#"SELECT "geom" FROM "{}""#, layer_name),
@@ -443,11 +453,15 @@ mod tests {
         )?;
 
         let point_a = Point::new(1.0, 2.0);
-        layer.insert(point_a, ("alpha".to_string(), 7_i64))?;
+        let name_a = "alpha".to_string();
+        let value_a = 7_i64;
+        layer.insert(point_a, &[&name_a, &value_a])?;
         let id = layer.conn.connection().last_insert_rowid();
 
         let point_b = Point::new(4.0, 5.0);
-        layer.update(point_b, ("beta".to_string(), 9_i64), id)?;
+        let name_b = "beta".to_string();
+        let value_b = 9_i64;
+        layer.update(point_b, &[&name_b, &value_b], id)?;
 
         let (geom_blob, name, value): (Vec<u8>, String, i64) = layer.conn.connection().query_row(
             "SELECT geom, name, value FROM points WHERE fid = ?1",
@@ -595,7 +609,7 @@ mod tests {
         )?;
 
         let point_a = Point::new(1.5, -2.0);
-        layer.insert(point_a, Vec::<Value>::new())?;
+        layer.insert(point_a, &[])?;
         let id = layer.conn.connection().last_insert_rowid();
 
         let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
@@ -609,7 +623,7 @@ mod tests {
         assert_eq!(maxy, -2.0);
 
         let point_b = Point::new(-4.0, 6.25);
-        layer.update(point_b, Vec::<Value>::new(), id)?;
+        layer.update(point_b, &[], id)?;
         let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
             "SELECT minx, maxx, miny, maxy FROM rtree_rtree_points_geom WHERE id = ?1",
             [id],
@@ -648,8 +662,10 @@ mod tests {
             &columns,
         )?;
 
-        layer.insert(Point::new(0.0, 0.0), vec![Value::Text("a".to_string())])?;
-        layer.insert(Point::new(1.0, 1.0), vec![Value::Text("b".to_string())])?;
+        let value_a = Value::Text("a".to_string());
+        let value_b = Value::Text("b".to_string());
+        layer.insert(Point::new(0.0, 0.0), &[&value_a])?;
+        layer.insert(Point::new(1.0, 1.0), &[&value_b])?;
 
         let deleted = layer.truncate()?;
         assert_eq!(deleted, 2);
@@ -687,7 +703,8 @@ mod tests {
             &columns,
         )?;
 
-        let result = layer.insert(Point::new(0.0, 0.0), vec![Value::Text("only".to_string())]);
+        let only = Value::Text("only".to_string());
+        let result = layer.insert(Point::new(0.0, 0.0), &[&only]);
         match result {
             Err(crate::error::GpkgError::InvalidPropertyCount { expected, got }) => {
                 assert_eq!(expected, 2);
