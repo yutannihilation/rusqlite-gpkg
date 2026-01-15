@@ -342,6 +342,25 @@ impl Gpkg {
         Ok(())
     }
 
+    /// Dump the GeoPackage data to `Vec<u8>`.
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        let data: &[u8] = &self.conn.serialize("main")?;
+        Ok(data.to_vec())
+    }
+
+    /// Load the GeoPackage data from a dump.
+    pub fn from_bytes<D: AsRef<[u8]>>(data: D) -> Result<Self> {
+        let mut conn = rusqlite::Connection::open_in_memory()?;
+
+        let data_ref = data.as_ref();
+        let reader = std::io::Cursor::new(data_ref);
+        conn.deserialize_read_exact("main", reader, data_ref.len(), false)?;
+        Ok(Self {
+            conn,
+            read_only: false,
+        })
+    }
+
     pub(crate) fn connection(&self) -> &rusqlite::Connection {
         &self.conn
     }
@@ -450,7 +469,11 @@ impl Gpkg {
 mod tests {
     use super::Gpkg;
     use crate::error::GpkgError;
-    use crate::types::ColumnSpec;
+    use crate::types::{ColumnSpec, ColumnType};
+    use geo_types::Point;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use wkb::reader::{Dimension, GeometryType};
 
     #[test]
     fn new_layer_requires_existing_srs() {
@@ -526,5 +549,126 @@ mod tests {
             .delete_layer("points")
             .expect_err("read-only should fail");
         assert!(matches!(err, GpkgError::ReadOnly));
+    }
+
+    #[test]
+    fn dump_roundtrips_in_memory_gpkg() -> Result<(), GpkgError> {
+        let gpkg = Gpkg::new_in_memory()?;
+
+        let columns = vec![
+            ColumnSpec {
+                name: "name".to_string(),
+                column_type: ColumnType::Varchar,
+            },
+            ColumnSpec {
+                name: "value".to_string(),
+                column_type: ColumnType::Integer,
+            },
+        ];
+        let layer = gpkg.new_layer(
+            "points",
+            "geom".to_string(),
+            GeometryType::Point,
+            Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        layer.insert(Point::new(1.0, 2.0), ("alpha".to_string(), 7_i64))?;
+        layer.insert(Point::new(-3.0, 4.5), ("beta".to_string(), 9_i64))?;
+
+        let dump = gpkg.to_bytes()?;
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        path.push(format!("rusqlite_gpkg_dump_{nanos}.gpkg"));
+        fs::write(&path, dump).unwrap();
+
+        let reopened = Gpkg::open_read_only(&path)?;
+        let layers = reopened.list_layers()?;
+        assert_eq!(layers, vec!["points".to_string()]);
+
+        let reopened_layer = reopened.open_layer("points")?;
+        let features = reopened_layer.features()?;
+        let collected: Vec<_> = features.collect();
+        assert_eq!(collected.len(), 2);
+
+        assert_eq!(collected[0].id(), 1);
+        assert_eq!(collected[0].property::<String>(0)?, "alpha");
+        assert_eq!(collected[0].property::<i64>(1)?, 7);
+        assert_eq!(
+            collected[0].geometry()?.geometry_type(),
+            GeometryType::Point
+        );
+
+        assert_eq!(collected[1].id(), 2);
+        assert_eq!(collected[1].property::<String>(0)?, "beta");
+        assert_eq!(collected[1].property::<i64>(1)?, 9);
+        assert_eq!(
+            collected[1].geometry()?.geometry_type(),
+            GeometryType::Point
+        );
+
+        let _ = fs::remove_file(&path);
+        Ok(())
+    }
+
+    #[test]
+    fn dump_roundtrips_in_memory_gpkg_from_bytes() -> Result<(), GpkgError> {
+        let gpkg = Gpkg::new_in_memory()?;
+
+        let columns = vec![
+            ColumnSpec {
+                name: "name".to_string(),
+                column_type: ColumnType::Varchar,
+            },
+            ColumnSpec {
+                name: "value".to_string(),
+                column_type: ColumnType::Integer,
+            },
+        ];
+        let layer = gpkg.new_layer(
+            "points",
+            "geom".to_string(),
+            GeometryType::Point,
+            Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        layer.insert(Point::new(1.0, 2.0), ("alpha".to_string(), 7_i64))?;
+        layer.insert(Point::new(-3.0, 4.5), ("beta".to_string(), 9_i64))?;
+
+        let dump = gpkg.to_bytes()?;
+
+        let restored = Gpkg::from_bytes(&dump)?;
+
+        let layers = restored.list_layers()?;
+        assert_eq!(layers, vec!["points".to_string()]);
+
+        let restored_layer = restored.open_layer("points")?;
+        let features = restored_layer.features()?;
+        let collected: Vec<_> = features.collect();
+        assert_eq!(collected.len(), 2);
+
+        assert_eq!(collected[0].id(), 1);
+        assert_eq!(collected[0].property::<String>(0)?, "alpha");
+        assert_eq!(collected[0].property::<i64>(1)?, 7);
+        assert_eq!(
+            collected[0].geometry()?.geometry_type(),
+            GeometryType::Point
+        );
+
+        assert_eq!(collected[1].id(), 2);
+        assert_eq!(collected[1].property::<String>(0)?, "beta");
+        assert_eq!(collected[1].property::<i64>(1)?, 9);
+        assert_eq!(
+            collected[1].geometry()?.geometry_type(),
+            GeometryType::Point
+        );
+
+        Ok(())
     }
 }
