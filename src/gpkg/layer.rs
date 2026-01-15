@@ -21,6 +21,8 @@ pub struct GpkgLayer<'a> {
     pub geometry_dimension: wkb::reader::Dimension,
     pub srs_id: u32,
     pub property_columns: Vec<ColumnSpec>,
+    pub(super) insert_sql: String,
+    pub(super) update_sql: String,
 }
 
 // When issueing the SELECT query, always place these columns first so that
@@ -160,23 +162,12 @@ impl<'a> GpkgLayer<'a> {
     where
         G: GeometryTrait<T = f64>,
     {
-        let (geom, column_names) = self.geom_and_columns(geometry, properties.len())?;
+        let geom = self.geom_from_geometry(geometry, properties.len())?;
 
-        let params = std::iter::once(&geom as &dyn rusqlite::ToSql)
-            .chain(properties.iter().copied());
+        let params =
+            std::iter::once(&geom as &dyn rusqlite::ToSql).chain(properties.iter().copied());
 
-        let columns = column_names
-            .iter()
-            .map(|name| format!(r#""{}""#, name))
-            .collect::<Vec<String>>()
-            .join(",");
-        let placeholders = (1..=column_names.len())
-            .map(|i| format!("?{i}"))
-            .collect::<Vec<String>>()
-            .join(",");
-        let sql = sql_insert_feature(&self.layer_name, &columns, &placeholders);
-
-        let mut stmt = self.conn.connection().prepare(&sql)?;
+        let mut stmt = self.conn.connection().prepare_cached(&self.insert_sql)?;
         stmt.execute(params_from_iter(params))?;
         Ok(())
     }
@@ -197,26 +188,14 @@ impl<'a> GpkgLayer<'a> {
     where
         G: GeometryTrait<T = f64>,
     {
-        let (geom, column_names) = self.geom_and_columns(geometry, properties.len())?;
+        let geom = self.geom_from_geometry(geometry, properties.len())?;
 
         let id_value = id;
         let params = std::iter::once(&geom as &dyn rusqlite::ToSql)
             .chain(properties.iter().copied())
             .chain(std::iter::once(&id_value as &dyn rusqlite::ToSql));
 
-        let assignments = column_names
-            .iter()
-            .enumerate()
-            .map(|(idx, name)| format!(r#""{}"=?{}"#, name, idx + 1))
-            .collect::<Vec<String>>()
-            .join(",");
-        let id_idx = column_names.len() + 1;
-        let sql = format!(
-            r#"UPDATE "{}" SET {} WHERE "{}"=?{}"#,
-            self.layer_name, assignments, self.primary_key_column, id_idx
-        );
-
-        let mut stmt = self.conn.connection().prepare(&sql)?;
+        let mut stmt = self.conn.connection().prepare_cached(&self.update_sql)?;
         stmt.execute(params_from_iter(params))?;
         Ok(())
     }
@@ -228,11 +207,52 @@ impl<'a> GpkgLayer<'a> {
         Ok(())
     }
 
-    fn geom_and_columns<G>(
-        &self,
-        geometry: G,
-        property_count: usize,
-    ) -> Result<(Vec<u8>, Vec<String>)>
+    pub(crate) fn build_insert_sql(
+        layer_name: &str,
+        geometry_column: &str,
+        property_columns: &[ColumnSpec],
+    ) -> String {
+        let mut columns = Vec::with_capacity(property_columns.len() + 1);
+        columns.push(format!(r#""{}""#, geometry_column));
+        columns.extend(
+            property_columns
+                .iter()
+                .map(|spec| format!(r#""{}""#, spec.name)),
+        );
+
+        let placeholders = (1..=columns.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<String>>()
+            .join(",");
+
+        sql_insert_feature(layer_name, &columns.join(","), &placeholders)
+    }
+
+    pub(crate) fn build_update_sql(
+        layer_name: &str,
+        geometry_column: &str,
+        primary_key_column: &str,
+        property_columns: &[ColumnSpec],
+    ) -> String {
+        let mut column_names = Vec::with_capacity(property_columns.len() + 1);
+        column_names.push(geometry_column);
+        column_names.extend(property_columns.iter().map(|spec| spec.name.as_str()));
+
+        let assignments = column_names
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| format!(r#""{}"=?{}"#, name, idx + 1))
+            .collect::<Vec<String>>()
+            .join(",");
+        let id_idx = column_names.len() + 1;
+
+        format!(
+            r#"UPDATE "{}" SET {} WHERE "{}"=?{}"#,
+            layer_name, assignments, primary_key_column, id_idx
+        )
+    }
+
+    fn geom_from_geometry<G>(&self, geometry: G, property_count: usize) -> Result<Vec<u8>>
     where
         G: GeometryTrait<T = f64>,
     {
@@ -250,11 +270,7 @@ impl<'a> GpkgLayer<'a> {
             });
         }
 
-        let mut column_names = Vec::with_capacity(self.property_columns.len() + 1);
-        column_names.push(self.geometry_column.clone());
-        column_names.extend(self.property_columns.iter().map(|col| col.name.clone()));
-
-        Ok((geom, column_names))
+        Ok(geom)
     }
 }
 

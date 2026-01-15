@@ -209,6 +209,14 @@ impl Gpkg {
         let primary_key_column = column_specs.primary_key_column.clone();
         let other_columns = column_specs.other_columns;
 
+        let insert_sql = GpkgLayer::build_insert_sql(layer_name, &geometry_column, &other_columns);
+        let update_sql = GpkgLayer::build_update_sql(
+            layer_name,
+            &geometry_column,
+            &primary_key_column,
+            &other_columns,
+        );
+
         Ok(GpkgLayer {
             conn: self,
             layer_name: layer_name.to_string(),
@@ -218,6 +226,8 @@ impl Gpkg {
             geometry_dimension,
             srs_id,
             property_columns: other_columns,
+            insert_sql,
+            update_sql,
         })
     }
 
@@ -306,6 +316,11 @@ impl Gpkg {
 
         execute_rtree_sqls(&self.conn, layer_name, &geometry_column, "fid")?;
 
+        let insert_sql =
+            GpkgLayer::build_insert_sql(layer_name, &geometry_column, other_column_specs);
+        let update_sql =
+            GpkgLayer::build_update_sql(layer_name, &geometry_column, "fid", other_column_specs);
+
         Ok(GpkgLayer {
             conn: self,
             layer_name: layer_name.to_string(),
@@ -315,6 +330,8 @@ impl Gpkg {
             geometry_dimension,
             srs_id,
             property_columns: other_column_specs.to_vec(),
+            insert_sql,
+            update_sql,
         })
     }
 
