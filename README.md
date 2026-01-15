@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rs
 use geo_types::Point;
-use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, Value};
+use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpkg = Gpkg::new("data.gpkg")?;
@@ -71,10 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
      // You can pass whatever object that implements GeometryTrait
-    layer.insert(
-        Point::new(1.0, 2.0),
-        vec![Value::Text("alpha".to_string()), Value::Integer(7)],
-    )?;
+    layer.insert(Point::new(1.0, 2.0), ("alpha".to_string(), 7_i64))?;
 
     Ok(())
 }

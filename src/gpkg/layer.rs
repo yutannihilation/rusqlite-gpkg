@@ -1,6 +1,6 @@
 use crate::error::{GpkgError, Result};
 use crate::ogc_sql::{sql_delete_all, sql_insert_feature, sql_select_features};
-use crate::types::ColumnSpec;
+use crate::types::{ColumnSpec, RusqliteValues};
 use geo_traits::GeometryTrait;
 use rusqlite::{
     params_from_iter,
@@ -129,10 +129,10 @@ impl<'a> GpkgLayer<'a> {
     }
 
     /// Insert a feature with geometry and ordered property values.
-    pub fn insert<G, I>(&self, geometry: G, params: I) -> Result<()>
+    pub fn insert<G, P>(&self, geometry: G, params: P) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
-        I: IntoIterator<Item = Value>,
+        P: RusqliteValues,
     {
         let (values, column_names) = self.feature_values_and_columns(geometry, params)?;
 
@@ -153,10 +153,10 @@ impl<'a> GpkgLayer<'a> {
     }
 
     /// Update the feature with geometry and ordered property values.
-    pub fn update<G, I>(&self, geometry: G, params: I, id: i64) -> Result<()>
+    pub fn update<G, P>(&self, geometry: G, params: P, id: i64) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
-        I: IntoIterator<Item = Value>,
+        P: RusqliteValues,
     {
         let (mut values, column_names) = self.feature_values_and_columns(geometry, params)?;
         values.push(Value::Integer(id));
@@ -186,14 +186,14 @@ impl<'a> GpkgLayer<'a> {
         Ok(())
     }
 
-    fn feature_values_and_columns<G, I>(
+    fn feature_values_and_columns<G, P>(
         &self,
         geometry: G,
-        params: I,
+        params: P,
     ) -> Result<(Vec<Value>, Vec<String>)>
     where
         G: GeometryTrait<T = f64>,
-        I: IntoIterator<Item = Value>,
+        P: RusqliteValues,
     {
         self.ensure_writable()?;
 
@@ -202,7 +202,7 @@ impl<'a> GpkgLayer<'a> {
         let wkb = Wkb::try_new(&wkb)?;
         let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
 
-        let properties: Vec<Value> = params.into_iter().collect();
+        let properties: Vec<Value> = params.into_values()?;
         if properties.len() != self.other_columns.len() {
             return Err(GpkgError::InvalidPropertyCount {
                 expected: self.other_columns.len(),
@@ -422,18 +422,11 @@ mod tests {
         )?;
 
         let point_a = Point::new(1.0, 2.0);
-        layer.insert(
-            point_a,
-            vec![Value::Text("alpha".to_string()), Value::Integer(7)],
-        )?;
+        layer.insert(point_a, ("alpha".to_string(), 7_i64))?;
         let id = layer.conn.connection().last_insert_rowid();
 
         let point_b = Point::new(4.0, 5.0);
-        layer.update(
-            point_b,
-            vec![Value::Text("beta".to_string()), Value::Integer(9)],
-            id,
-        )?;
+        layer.update(point_b, ("beta".to_string(), 9_i64), id)?;
 
         let (geom_blob, name, value): (Vec<u8>, String, i64) = layer.conn.connection().query_row(
             "SELECT geom, name, value FROM points WHERE fid = ?1",
