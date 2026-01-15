@@ -382,4 +382,57 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
+    #[test]
+    fn new_fails_if_file_exists() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        path.push(format!("rusqlite_gpkg_exists_{nanos}.gpkg"));
+
+        fs::write(&path, []).expect("create temp file");
+        let err = Gpkg::new(&path).expect_err("existing file should fail");
+        match err {
+            GpkgError::Message(message) => {
+                assert!(message.contains("already exists"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn open_fails_if_missing_file() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let mut path = std::env::temp_dir();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        path.push(format!("rusqlite_gpkg_missing_{nanos}.gpkg"));
+
+        let err = Gpkg::open(&path).expect_err("missing file should fail");
+        match err {
+            GpkgError::Message(message) => {
+                assert!(message.contains("does not exist"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delete_layer_rejects_read_only() {
+        let gpkg =
+            Gpkg::open_read_only("src/test/test_generated.gpkg").expect("open read-only gpkg");
+        let err = gpkg
+            .delete_layer("points")
+            .expect_err("read-only should fail");
+        assert!(matches!(err, GpkgError::ReadOnly));
+    }
 }

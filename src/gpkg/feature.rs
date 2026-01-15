@@ -153,4 +153,22 @@ mod tests {
             Err(crate::error::GpkgError::InvalidGpkgGeometryFlags(_))
         ));
     }
+
+    #[test]
+    fn property_invalid_index_reports_error() -> Result<()> {
+        use rusqlite::types::Value;
+
+        let feature = super::GpkgFeature::new(1, Point::new(0.0, 0.0), vec![Value::Integer(1)])?;
+        let err = feature
+            .property::<i64>(2)
+            .expect_err("invalid index should fail");
+        assert!(matches!(
+            err,
+            crate::error::GpkgError::Sql(rusqlite::Error::InvalidColumnIndex(2))
+        ));
+        Ok(())
+    }
 }
+
+
+
