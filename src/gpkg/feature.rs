@@ -183,12 +183,8 @@ mod tests {
 
     #[test]
     fn property_invalid_index_reports_error() -> Result<()> {
-        let feature = super::GpkgFeature::new(
-            1,
-            Point::new(0.0, 0.0),
-            vec![Value::Integer(1)],
-            &["value"],
-        )?;
+        let feature =
+            super::GpkgFeature::new(1, Point::new(0.0, 0.0), vec![Value::Integer(1)], &["value"])?;
         let value = feature.property("missing");
         assert!(value.is_none());
         Ok(())
