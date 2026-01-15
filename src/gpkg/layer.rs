@@ -26,21 +26,19 @@ pub struct GpkgLayer<'a> {
 impl<'a> GpkgLayer<'a> {
     /// Iterate over features in the layer in rowid order.
     pub fn features(&self) -> Result<GpkgFeatureIterator> {
-        let column_specs = self.conn.get_column_specs(&self.layer_name)?;
-        let geometry_index = column_specs
-            .other_columns
-            .iter()
-            .position(|spec| spec.name == self.geometry_column)
-            .ok_or_else(|| rusqlite::Error::InvalidColumnName(self.geometry_column.clone()))?;
+        let column_specs = self
+            .conn
+            .get_column_specs(&self.layer_name, &self.geometry_column)?;
         let primary_index = column_specs
             .other_columns
             .iter()
             .position(|spec| spec.name == self.primary_key_column)
             .ok_or_else(|| rusqlite::Error::InvalidColumnName(self.primary_key_column.clone()))?;
-        let columns = column_specs
-            .other_columns
-            .iter()
-            .map(|spec| format!(r#""{}""#, spec.name))
+        let geometry_index = 0usize;
+        let primary_index = primary_index + 1;
+        let columns = std::iter::once(column_specs.geometry_column.name.as_str())
+            .chain(column_specs.other_columns.iter().map(|spec| spec.name.as_str()))
+            .map(|name| format!(r#""{}""#, name))
             .collect::<Vec<String>>()
             .join(",");
         let sql = sql_select_features(&self.layer_name, &columns);
@@ -49,12 +47,16 @@ impl<'a> GpkgLayer<'a> {
             .query_map([], |row| {
                 let mut id: Option<i64> = None;
                 let mut geometry: Option<Vec<u8>> = None;
-                let mut properties =
-                    Vec::with_capacity(column_specs.other_columns.len().saturating_sub(1));
+                let mut properties = Vec::with_capacity(column_specs.other_columns.len());
 
-                for (idx, spec) in column_specs.other_columns.iter().enumerate() {
+                for idx in 0..=column_specs.other_columns.len() {
                     let value_ref = row.get_ref(idx)?;
                     let value = Value::from(value_ref);
+                    let spec = if idx == geometry_index {
+                        &column_specs.geometry_column
+                    } else {
+                        &column_specs.other_columns[idx - 1]
+                    };
 
                     if idx == geometry_index {
                         match value {

@@ -155,13 +155,9 @@ impl Gpkg {
     pub fn open_layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
-        let column_specs = self.get_column_specs(layer_name)?;
+        let column_specs = self.get_column_specs(layer_name, &geometry_column)?;
         let primary_key_column = column_specs.primary_key.clone();
-        let other_columns = column_specs
-            .other_columns
-            .into_iter()
-            .filter(|spec| spec.name != geometry_column)
-            .collect();
+        let other_columns = column_specs.other_columns;
 
         Ok(GpkgLayer {
             conn: self,
@@ -274,11 +270,16 @@ impl Gpkg {
     }
 
     /// Resolve the table columns and map SQLite types.
-    pub(crate) fn get_column_specs(&self, layer_name: &str) -> Result<ColumnSpecs> {
+    pub(crate) fn get_column_specs(
+        &self,
+        layer_name: &str,
+        geometry_column: &str,
+    ) -> Result<ColumnSpecs> {
         let query = sql_table_columns(layer_name);
         let mut stmt = self.conn.prepare(&query)?;
 
         let mut primary_key: Option<String> = None;
+        let mut geometry_spec: Option<ColumnSpec> = None;
         let column_specs = stmt.query_map([], |row| {
             let name: String = row.get(0)?;
             let column_type_str: String = row.get(1)?;
@@ -309,7 +310,11 @@ impl Gpkg {
                 }
                 primary_key = Some(name.clone());
             }
-            other_columns.push(ColumnSpec { name, column_type });
+            if name == geometry_column {
+                geometry_spec = Some(ColumnSpec { name, column_type });
+            } else {
+                other_columns.push(ColumnSpec { name, column_type });
+            }
         }
 
         let primary_key = primary_key.ok_or_else(|| {
@@ -318,8 +323,13 @@ impl Gpkg {
             ))
         })?;
 
+        let geometry_column = geometry_spec.ok_or_else(|| {
+            GpkgError::Message(format!("No geometry column found for layer: {layer_name}"))
+        })?;
+
         Ok(ColumnSpecs {
             primary_key,
+            geometry_column,
             other_columns,
         })
     }
