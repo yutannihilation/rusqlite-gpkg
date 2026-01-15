@@ -73,6 +73,7 @@ mod types;
 
 pub use error::{GpkgError, Result};
 pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureIterator, GpkgLayer};
+pub use sql_functions::register_spatial_functions;
 pub use types::{ColumnSpec, ColumnType, RusqliteValues};
 
 // Re-export types used in public fields to keep the public API stable.

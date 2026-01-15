@@ -30,6 +30,19 @@ const PRIMARY_INDEX: usize = 1;
 
 impl<'a> GpkgLayer<'a> {
     /// Iterate over features in the layer in rowid order.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// let layer = gpkg.open_layer("points")?;
+    /// for feature in layer.features()? {
+    ///     let _id = feature.id();
+    ///     let _geom = feature.geometry()?;
+    /// }
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn features(&self) -> Result<GpkgFeatureIterator> {
         let column_specs = self
             .conn
@@ -115,6 +128,16 @@ impl<'a> GpkgLayer<'a> {
     }
 
     /// Remove all rows from the layer.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open("data/example.gpkg")?;
+    /// let layer = gpkg.open_layer("points")?;
+    /// layer.truncate()?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn truncate(&self) -> Result<usize> {
         self.ensure_writable()?;
         let sql = sql_delete_all(&self.layer_name);
@@ -122,6 +145,17 @@ impl<'a> GpkgLayer<'a> {
     }
 
     /// Insert a feature with geometry and ordered property values.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use geo_types::Point;
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open("data/example.gpkg")?;
+    /// let layer = gpkg.open_layer("points")?;
+    /// layer.insert(Point::new(1.0, 2.0), ("alpha", true))?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn insert<G, P>(&self, geometry: G, params: P) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
@@ -146,6 +180,17 @@ impl<'a> GpkgLayer<'a> {
     }
 
     /// Update the feature with geometry and ordered property values.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use geo_types::Point;
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open("data/example.gpkg")?;
+    /// let layer = gpkg.open_layer("points")?;
+    /// layer.update(Point::new(3.0, 4.0), ("beta", false), 1)?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn update<G, P>(&self, geometry: G, params: P, id: i64) -> Result<()>
     where
         G: GeometryTrait<T = f64>,

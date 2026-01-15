@@ -12,11 +12,33 @@ pub struct GpkgFeature {
 
 impl GpkgFeature {
     /// Return the primary key value.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// let layer = gpkg.open_layer("points")?;
+    /// let feature = layer.features()?.next().expect("feature");
+    /// let _id = feature.id();
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn id(&self) -> i64 {
         self.id
     }
 
     /// Decode the geometry column into WKB.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// let layer = gpkg.open_layer("points")?;
+    /// let feature = layer.features()?.next().expect("feature");
+    /// let _geom = feature.geometry()?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn geometry(&self) -> Result<Wkb<'_>> {
         let bytes = self.geometry.as_ref().ok_or_else(|| {
             GpkgError::Sql(rusqlite::Error::InvalidColumnType(
@@ -29,6 +51,17 @@ impl GpkgFeature {
     }
 
     /// Read a property by index using rusqlite's `FromSql` conversion.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// let layer = gpkg.open_layer("points")?;
+    /// let feature = layer.features()?.next().expect("feature");
+    /// let value: String = feature.property(0)?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn property<T: FromSql>(&self, idx: usize) -> Result<T> {
         let value = self
             .properties
@@ -60,6 +93,17 @@ impl GpkgFeature {
         })
     }
 
+    /// Build a feature from an ID, geometry, and property values.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use geo_types::Point;
+    /// use rusqlite::types::Value;
+    /// use rusqlite_gpkg::GpkgFeature;
+    ///
+    /// let feature = GpkgFeature::new(1, Point::new(1.0, 2.0), vec![Value::Text("alpha".into())])?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn new<G, I>(id: i64, geometry: G, properties: I) -> Result<Self>
     where
         G: GeometryTrait<T = f64>,

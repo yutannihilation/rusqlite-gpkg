@@ -17,6 +17,17 @@ struct Bounds {
     maxy: f64,
 }
 
+/// Register all spatial SQL helper functions in the provided connection.
+///
+/// Example:
+/// ```no_run
+/// use rusqlite::Connection;
+/// use rusqlite_gpkg::register_spatial_functions;
+///
+/// let conn = Connection::open_in_memory()?;
+/// register_spatial_functions(&conn)?;
+/// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+/// ```
 pub fn register_spatial_functions(conn: &Connection) -> Result<()> {
     register_st_minx(conn)?;
     register_st_miny(conn)?;
@@ -26,23 +37,23 @@ pub fn register_spatial_functions(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-pub fn register_st_minx(conn: &Connection) -> Result<()> {
+pub(crate) fn register_st_minx(conn: &Connection) -> Result<()> {
     register_bounds_component(conn, "ST_MinX", |b| b.minx)
 }
 
-pub fn register_st_miny(conn: &Connection) -> Result<()> {
+pub(crate) fn register_st_miny(conn: &Connection) -> Result<()> {
     register_bounds_component(conn, "ST_MinY", |b| b.miny)
 }
 
-pub fn register_st_maxx(conn: &Connection) -> Result<()> {
+pub(crate) fn register_st_maxx(conn: &Connection) -> Result<()> {
     register_bounds_component(conn, "ST_MaxX", |b| b.maxx)
 }
 
-pub fn register_st_maxy(conn: &Connection) -> Result<()> {
+pub(crate) fn register_st_maxy(conn: &Connection) -> Result<()> {
     register_bounds_component(conn, "ST_MaxY", |b| b.maxy)
 }
 
-pub fn register_st_isempty(conn: &Connection) -> Result<()> {
+pub(crate) fn register_st_isempty(conn: &Connection) -> Result<()> {
     conn.create_scalar_function(
         "ST_IsEmpty",
         1,

@@ -24,6 +24,14 @@ pub struct Gpkg {
 
 impl Gpkg {
     /// Open a GeoPackage in read-only mode.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = rusqlite::Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
         register_spatial_functions(&conn)?;
@@ -34,6 +42,14 @@ impl Gpkg {
     }
 
     /// Open a GeoPackage in read-write mode.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open("data/example.gpkg")?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         if !path.exists() {
@@ -51,7 +67,15 @@ impl Gpkg {
         })
     }
 
-    /// Create a new GeoPackage
+    /// Create a new GeoPackage.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::new("data/new.gpkg")?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         if path.exists() {
@@ -72,7 +96,15 @@ impl Gpkg {
         })
     }
 
-    /// Create a new GeoPackage in memory
+    /// Create a new GeoPackage in memory.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::new_in_memory()?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn new_in_memory() -> Result<Self> {
         let conn = rusqlite::Connection::open_in_memory()?;
 
@@ -100,7 +132,7 @@ impl Gpkg {
     /// the GeoPackage SRS requirements and have authoritative metadata.
     ///
     /// Example: register EPSG:3857 (Web Mercator / Pseudo-Mercator).
-    /// ```
+    /// ```no_run
     /// # use rusqlite_gpkg::Gpkg;
     /// let gpkg = Gpkg::new_in_memory().expect("new gpkg");
     /// let definition = r#"PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],EXTENSION["PROJ4","+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]"#;
@@ -143,6 +175,15 @@ impl Gpkg {
     }
 
     /// List the names of the layers.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// let layers = gpkg.list_layers()?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn list_layers(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(SQL_LIST_LAYERS)?;
         let layers = stmt
@@ -152,6 +193,15 @@ impl Gpkg {
     }
 
     /// Load a layer definition and metadata by name.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// let layer = gpkg.open_layer("points")?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn open_layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
@@ -172,6 +222,28 @@ impl Gpkg {
     }
 
     // Create a new layer.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use geo_types::Point;
+    /// use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg};
+    ///
+    /// let gpkg = Gpkg::new_in_memory()?;
+    /// let columns = vec![ColumnSpec {
+    ///     name: "name".to_string(),
+    ///     column_type: ColumnType::Varchar,
+    /// }];
+    /// let layer = gpkg.new_layer(
+    ///     "points",
+    ///     "geom".to_string(),
+    ///     wkb::reader::GeometryType::Point,
+    ///     wkb::reader::Dimension::Xy,
+    ///     4326,
+    ///     &columns,
+    /// )?;
+    /// layer.insert(Point::new(1.0, 2.0), ("alpha",))?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn new_layer<'a>(
         &'a self,
         layer_name: &str,
@@ -247,6 +319,15 @@ impl Gpkg {
     }
 
     /// Delete a layer.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open("data/example.gpkg")?;
+    /// gpkg.delete_layer("points")?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn delete_layer(&self, layer_name: &str) -> Result<()> {
         if self.read_only {
             return Err(GpkgError::ReadOnly);
