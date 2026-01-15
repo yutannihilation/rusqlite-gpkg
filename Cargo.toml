@@ -17,6 +17,11 @@ name = "read_gpkg"
 path = "src/bin/read_gpkg.rs"
 required-features = ["wkt"]
 
+[[bin]]
+name = "write_gpkg"
+path = "src/bin/write_gpkg.rs"
+required-features = ["wkt"]
+
 [dev-dependencies]
 geo-types = "0.7"
 wkt = "0.14"

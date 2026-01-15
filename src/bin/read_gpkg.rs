@@ -10,7 +10,10 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let gpkg = Gpkg::open_read_only("src/test/test_generated.gpkg")?;
+    let path = std::env::args()
+        .nth(1)
+        .ok_or("Usage: read_gpkg <path-to-gpkg>")?;
+    let gpkg = Gpkg::open_read_only(path)?;
     let layers = gpkg.list_layers()?;
 
     for layer_name in layers {
@@ -18,13 +21,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         println!("layer: {layer_name}");
 
         for (row_idx, feature) in layer.features()?.enumerate() {
-            let mut values = Vec::with_capacity(layer.property_columns().len() + 1);
+            let mut values = Vec::with_capacity(layer.property_columns.len() + 1);
             let wkb = feature.geometry()?;
             let mut wkt = String::new();
             write_geometry(&mut wkt, &wkb)?;
-            values.push(format!("{}={wkt}", layer.geometry_column()));
+            values.push(format!("{}={wkt}", layer.geometry_column));
 
-            for (idx, column) in layer.property_columns().iter().enumerate() {
+            for (idx, column) in layer.property_columns.iter().enumerate() {
                 let value = feature.property::<Value>(idx)?;
                 values.push(format!("{}={}", column.name, format_value(&value)));
             }
