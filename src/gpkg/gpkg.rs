@@ -15,6 +15,7 @@ use std::path::Path;
 
 use super::layer::GpkgLayer;
 
+#[derive(Debug)]
 /// GeoPackage connection wrapper for reading (and later writing) layers.
 pub struct Gpkg {
     conn: rusqlite::Connection,
@@ -134,6 +135,17 @@ impl Gpkg {
         if self.list_layers()?.iter().any(|name| name == layer_name) {
             return Err(GpkgError::Message(format!(
                 "Layer already exists: {layer_name}"
+            )));
+        }
+
+        let srs_exists: i64 = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM gpkg_spatial_ref_sys WHERE srs_id = ?1)",
+            rusqlite::params![srs_id],
+            |row| row.get(0),
+        )?;
+        if srs_exists == 0 {
+            return Err(GpkgError::Message(format!(
+                "srs_id {srs_id} not found in gpkg_spatial_ref_sys"
             )));
         }
 
@@ -282,5 +294,35 @@ impl Gpkg {
         let geometry_dimension = dimension_from_zm(z, m)?;
 
         Ok((geometry_column, geometry_type, geometry_dimension, srs_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Gpkg;
+    use crate::error::GpkgError;
+    use crate::types::ColumnSpec;
+
+    #[test]
+    fn new_layer_requires_existing_srs() {
+        let gpkg = Gpkg::new_in_memory().expect("new gpkg");
+        let columns: Vec<ColumnSpec> = Vec::new();
+        let err = gpkg
+            .new_layer(
+                "missing_srs",
+                "geom".to_string(),
+                wkb::reader::GeometryType::Point,
+                wkb::reader::Dimension::Xy,
+                9999,
+                &columns,
+            )
+            .expect_err("missing srs should fail");
+
+        match err {
+            GpkgError::Message(message) => {
+                assert!(message.contains("srs_id 9999"));
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }
