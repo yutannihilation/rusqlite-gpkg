@@ -343,12 +343,39 @@ impl Gpkg {
     }
 
     /// Dump the GeoPackage data to `Vec<u8>`.
+    ///
+    /// This is intended for environments without filesystem access (for example,
+    /// running in a web browser). You can serialize an in-memory GeoPackage and
+    /// move the bytes over the wire or store them in browser storage.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::new_in_memory()?;
+    /// let bytes = gpkg.to_bytes()?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         let data: &[u8] = &self.conn.serialize("main")?;
         Ok(data.to_vec())
     }
 
     /// Load the GeoPackage data from a dump.
+    ///
+    /// This is intended for environments without filesystem access (for example,
+    /// running in a web browser). Provide the bytes from `Gpkg::to_bytes()` to
+    /// recreate an in-memory GeoPackage.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::new_in_memory()?;
+    /// let bytes = gpkg.to_bytes()?;
+    /// let restored = Gpkg::from_bytes(&bytes)?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn from_bytes<D: AsRef<[u8]>>(data: D) -> Result<Self> {
         let mut conn = rusqlite::Connection::open_in_memory()?;
 
