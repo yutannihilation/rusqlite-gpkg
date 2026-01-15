@@ -1,5 +1,39 @@
 //! Read and write GeoPackage data with a small, rusqlite-backed API.
 //!
+//! ## Overview
+//!
+//! - `Gpkg` opens or creates a GeoPackage, lists layers, and creates new layers.
+//! - `GpkgLayer` reads features and inserts or updates feature rows.
+//! - `GpkgFeature` gives access to geometry, properties, and the row id.
+//!
+//! `Gpkg` is the entry point and supports several open modes:
+//!
+//! - `Gpkg::open_read_only(path)`: open an existing file read-only.
+//! - `Gpkg::open(path)`: open an existing file read/write (fails if missing).
+//! - `Gpkg::new(path)`: create a new GeoPackage (fails if it exists).
+//! - `Gpkg::new_in_memory()`: create an in-memory GeoPackage.
+//!
+//! You access a `GpkgLayer` via `Gpkg::open_layer(name)` for existing layers
+//! or `Gpkg::new_layer(...)` for new feature tables.
+//!
+//! `GpkgLayer::insert` and `GpkgLayer::update` accept any geometry that implements
+//! `geo_traits::GeometryTrait<T = f64>` (for example `geo_types::Point` or `wkt::Wkt`).
+//!
+//! ## Short usage
+//!
+//! ```no_run
+//! use rusqlite_gpkg::Gpkg;
+//!
+//! let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+//! let layers = gpkg.list_layers()?;
+//! let layer = gpkg.open_layer(&layers[0])?;
+//! let feature = layer.features()?.next().expect("feature");
+//! let _id = feature.id();
+//! let _geom = feature.geometry()?;
+//! let _name: String = feature.property(0)?;
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
+//! ```
+//!
 //! ## Reader
 //!
 //! ```no_run
