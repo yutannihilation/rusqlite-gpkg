@@ -229,9 +229,14 @@ mod tests {
     use crate::gpkg::Gpkg;
     use crate::types::{ColumnSpec, ColumnType};
     use geo_traits::GeometryTrait;
-    use geo_types::Point;
+    use geo_types::{
+        Geometry, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point,
+        Polygon,
+    };
     use rusqlite::types::Value;
+    use std::str::FromStr;
     use wkb::reader::{GeometryType, Wkb};
+    use wkt::Wkt;
 
     fn generated_gpkg_path() -> &'static str {
         "src/test/test_generated.gpkg"
@@ -249,6 +254,46 @@ mod tests {
         wkb::writer::write_geometry(&mut wkb, &geometry, &Default::default())?;
         let wkb = Wkb::try_new(&wkb)?;
         super::super::wkb_to_gpkg_geometry(wkb, srs_id)
+    }
+
+    fn assert_geometry_roundtrip<G: GeometryTrait<T = f64> + Clone>(
+        gpkg: &Gpkg,
+        layer_name: &str,
+        geometry_type: GeometryType,
+        geometry_dimension: wkb::reader::Dimension,
+        geometry: G,
+    ) -> Result<()> {
+        let columns: Vec<ColumnSpec> = Vec::new();
+        let layer = gpkg.new_layer(
+            layer_name,
+            "geom".to_string(),
+            geometry_type,
+            geometry_dimension,
+            4326,
+            &columns,
+        )?;
+
+        let expected_blob = gpkg_blob_from_geometry(geometry.clone(), 4326)?;
+        let mut expected_wkb = Vec::new();
+        wkb::writer::write_geometry(&mut expected_wkb, &geometry, &Default::default())?;
+        let expected_wkb = Wkb::try_new(&expected_wkb)?;
+
+        layer.insert(geometry, Vec::<Value>::new())?;
+
+        let geom_blob: Vec<u8> = layer.conn.connection().query_row(
+            &format!(r#"SELECT "geom" FROM "{}""#, layer_name),
+            [],
+            |row| row.get(0),
+        )?;
+        assert_eq!(geom_blob, expected_blob);
+
+        let feature = layer.features()?.next().expect("inserted feature");
+        let geom = feature.geometry()?;
+        assert_eq!(geom.geometry_type(), geometry_type);
+        assert_eq!(geom.dimension(), geometry_dimension);
+        assert_eq!(geom.buf(), expected_wkb.buf());
+
+        Ok(())
     }
 
     // This is a bit horrible part. gpkg_spatial_ref_sys requires the WKT of the SRS, but we don't have a good source for this.
@@ -400,6 +445,126 @@ mod tests {
         assert_eq!(geom_blob, expected_geom);
         assert_eq!(name, "beta");
         assert_eq!(value, 9);
+
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrips_all_geometry_types() -> Result<()> {
+        let gpkg = Gpkg::new_in_memory()?;
+        ensure_srs_4326(&gpkg)?;
+
+        let line = LineString::from(vec![(0.0, 0.0), (1.5, 1.0), (2.0, 0.5)]);
+        let line_b = LineString::from(vec![(-1.0, -1.0), (-2.0, -3.0)]);
+        let exterior = LineString::from(vec![
+            (0.0, 0.0),
+            (3.0, 0.0),
+            (3.0, 3.0),
+            (0.0, 3.0),
+            (0.0, 0.0),
+        ]);
+        let polygon = Polygon::new(exterior, vec![]);
+        let polygon_b = Polygon::new(
+            LineString::from(vec![
+                (10.0, 10.0),
+                (12.0, 10.0),
+                (12.0, 12.0),
+                (10.0, 12.0),
+                (10.0, 10.0),
+            ]),
+            vec![],
+        );
+
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_points",
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            Point::new(1.0, 2.0),
+        )?;
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_lines",
+            GeometryType::LineString,
+            wkb::reader::Dimension::Xy,
+            line.clone(),
+        )?;
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_polygons",
+            GeometryType::Polygon,
+            wkb::reader::Dimension::Xy,
+            polygon.clone(),
+        )?;
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_multi_points",
+            GeometryType::MultiPoint,
+            wkb::reader::Dimension::Xy,
+            MultiPoint::from(vec![Point::new(1.0, 1.0), Point::new(2.0, 2.0)]),
+        )?;
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_multi_lines",
+            GeometryType::MultiLineString,
+            wkb::reader::Dimension::Xy,
+            MultiLineString::new(vec![line.clone(), line_b]),
+        )?;
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_multi_polygons",
+            GeometryType::MultiPolygon,
+            wkb::reader::Dimension::Xy,
+            MultiPolygon::new(vec![polygon.clone(), polygon_b]),
+        )?;
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_geometry_collections",
+            GeometryType::GeometryCollection,
+            wkb::reader::Dimension::Xy,
+            GeometryCollection::from(vec![
+                Geometry::Point(Point::new(-1.0, -2.0)),
+                Geometry::LineString(line),
+                Geometry::Polygon(polygon),
+            ]),
+        )?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn roundtrips_z_and_m_dimensions() -> Result<()> {
+        let gpkg = Gpkg::new_in_memory()?;
+        ensure_srs_4326(&gpkg)?;
+
+        let point_z = Wkt::from_str("POINT Z (1 2 3)")
+            .map_err(|err| crate::error::GpkgError::Message(err.to_string()))?;
+        let line_m = Wkt::from_str("LINESTRING M (0 0 5, 1 1 6)")
+            .map_err(|err| crate::error::GpkgError::Message(err.to_string()))?;
+        let polygon_zm = Wkt::from_str("POLYGON ZM ((0 0 1 10, 2 0 2 11, 2 2 3 12, 0 0 1 10))")
+            .map_err(|err| crate::error::GpkgError::Message(err.to_string()))?;
+
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_point_z",
+            GeometryType::Point,
+            wkb::reader::Dimension::Xyz,
+            point_z,
+        )?;
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_linestring_m",
+            GeometryType::LineString,
+            wkb::reader::Dimension::Xym,
+            line_m,
+        )?;
+        assert_geometry_roundtrip(
+            &gpkg,
+            "rt_polygon_zm",
+            GeometryType::Polygon,
+            wkb::reader::Dimension::Xyzm,
+            polygon_zm,
+        )?;
 
         Ok(())
     }

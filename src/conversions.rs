@@ -99,6 +99,8 @@ pub(crate) fn column_type_from_str(column_type_str: &str) -> Option<ColumnType> 
         Some(ColumnType::Varchar)
     } else if s.eq_ignore_ascii_case("BOOLEAN") {
         Some(ColumnType::Boolean)
+    } else if s.eq_ignore_ascii_case("BLOB") {
+        Some(ColumnType::Geometry)
     } else if s.eq_ignore_ascii_case("GEOMETRY")
         || s.eq_ignore_ascii_case("POINT")
         || s.eq_ignore_ascii_case("LINESTRING")
