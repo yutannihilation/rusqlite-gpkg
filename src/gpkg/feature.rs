@@ -92,31 +92,6 @@ impl GpkgFeature {
             _ => GpkgError::Message("unsupported sqlite type conversion".to_string()),
         })
     }
-
-    /// Build a feature from an ID, geometry, and property values.
-    ///
-    /// Example:
-    /// ```no_run
-    /// use geo_types::Point;
-    /// use rusqlite::types::Value;
-    /// use rusqlite_gpkg::GpkgFeature;
-    ///
-    /// let feature = GpkgFeature::new(1, Point::new(1.0, 2.0), vec![Value::Text("alpha".into())])?;
-    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
-    /// ```
-    pub fn new<G, I>(id: i64, geometry: G, properties: I) -> Result<Self>
-    where
-        G: GeometryTrait<T = f64>,
-        I: IntoIterator<Item = Value>,
-    {
-        let mut buf = Vec::new();
-        wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
-        Ok(Self {
-            id,
-            geometry: Some(buf),
-            properties: properties.into_iter().collect(),
-        })
-    }
 }
 
 /// Owned iterator over features.
