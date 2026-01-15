@@ -28,6 +28,107 @@ pub trait RusqliteValues {
     fn into_values(self) -> Result<Vec<Value>>;
 }
 
+/// Convert a single parameter into a rusqlite Value.
+pub trait IntoRusqliteValue {
+    fn into_value(self) -> Value;
+}
+
+impl IntoRusqliteValue for Value {
+    fn into_value(self) -> Value {
+        self
+    }
+}
+
+impl IntoRusqliteValue for &str {
+    fn into_value(self) -> Value {
+        Value::Text(self.to_string())
+    }
+}
+
+impl IntoRusqliteValue for String {
+    fn into_value(self) -> Value {
+        Value::Text(self)
+    }
+}
+
+impl IntoRusqliteValue for Vec<u8> {
+    fn into_value(self) -> Value {
+        Value::Blob(self)
+    }
+}
+
+impl IntoRusqliteValue for bool {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl IntoRusqliteValue for f32 {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl IntoRusqliteValue for f64 {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl IntoRusqliteValue for i8 {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl IntoRusqliteValue for i16 {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl IntoRusqliteValue for i32 {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl IntoRusqliteValue for i64 {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl IntoRusqliteValue for u8 {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl IntoRusqliteValue for u16 {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl IntoRusqliteValue for u32 {
+    fn into_value(self) -> Value {
+        Value::from(self)
+    }
+}
+
+impl<T> IntoRusqliteValue for Option<T>
+where
+    T: IntoRusqliteValue,
+{
+    fn into_value(self) -> Value {
+        match self {
+            Some(value) => value.into_value(),
+            None => Value::Null,
+        }
+    }
+}
+
 impl RusqliteValues for () {
     fn into_values(self) -> Result<Vec<Value>> {
         Ok(Vec::new())
@@ -36,19 +137,26 @@ impl RusqliteValues for () {
 
 impl<T> RusqliteValues for Vec<T>
 where
-    T: Into<Value>,
+    T: IntoRusqliteValue,
 {
     fn into_values(self) -> Result<Vec<Value>> {
-        Ok(self.into_iter().map(Into::into).collect())
+        Ok(self
+            .into_iter()
+            .map(IntoRusqliteValue::into_value)
+            .collect())
     }
 }
 
 impl<T> RusqliteValues for &[T]
 where
-    T: Clone + Into<Value>,
+    T: Clone + IntoRusqliteValue,
 {
     fn into_values(self) -> Result<Vec<Value>> {
-        Ok(self.iter().cloned().map(Into::into).collect())
+        Ok(self
+            .iter()
+            .cloned()
+            .map(IntoRusqliteValue::into_value)
+            .collect())
     }
 }
 
@@ -57,10 +165,10 @@ macro_rules! value_params_array {
         $(
             impl<T> RusqliteValues for [T; $count]
             where
-                T: Into<Value>,
+                T: IntoRusqliteValue,
             {
                 fn into_values(self) -> Result<Vec<Value>> {
-                    Ok(self.into_iter().map(Into::into).collect())
+                    Ok(self.into_iter().map(IntoRusqliteValue::into_value).collect())
                 }
             }
         )+
@@ -71,9 +179,9 @@ value_params_array!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
 
 macro_rules! rusqlite_values_tuple {
     ($count:literal : $(($field:tt $ftype:ident)),* $(,)?) => {
-        impl<$($ftype,)*> RusqliteValues for ($($ftype,)*) where $($ftype: Into<Value>,)* {
+        impl<$($ftype,)*> RusqliteValues for ($($ftype,)*) where $($ftype: IntoRusqliteValue,)* {
             fn into_values(self) -> Result<Vec<Value>> {
-                Ok(vec![$(self.$field.into(),)*])
+                Ok(vec![$(self.$field.into_value(),)*])
             }
         }
     }
