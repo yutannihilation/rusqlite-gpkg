@@ -1,5 +1,4 @@
 use crate::error::{GpkgError, Result};
-use geo_traits::GeometryTrait;
 use rusqlite::types::{FromSql, FromSqlError, Type, Value, ValueRef};
 use wkb::reader::Wkb;
 
@@ -90,6 +89,21 @@ impl GpkgFeature {
                 ))
             }
             _ => GpkgError::Message("unsupported sqlite type conversion".to_string()),
+        })
+    }
+
+    #[cfg(test)]
+    fn new<G, I>(id: i64, geometry: G, properties: I) -> Result<Self>
+    where
+        G: geo_traits::GeometryTrait<T = f64>,
+        I: IntoIterator<Item = Value>,
+    {
+        let mut buf = Vec::new();
+        wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
+        Ok(Self {
+            id,
+            geometry: Some(buf),
+            properties: properties.into_iter().collect(),
         })
     }
 }
