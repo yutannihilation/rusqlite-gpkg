@@ -70,8 +70,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &columns,
     )?;
 
-     // You can pass whatever object that implements GeometryTrait
-    layer.insert(Point::new(1.0, 2.0), params!["alpha", 7_i64])?;
+    layer.insert(
+        Point::new(1.0, 2.0),    // geometry: You can pass whatever object that implements GeometryTrait
+        params!["alpha", 7_i64]  // other properties: Use params! macro to create &[&dyn ToSQL]
+    )?;
 
     Ok(())
 }
