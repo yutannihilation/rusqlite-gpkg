@@ -85,6 +85,63 @@ impl Gpkg {
         })
     }
 
+    /// Expert-only: register a spatial reference system in gpkg_spatial_ref_sys.
+    ///
+    /// GeoPackage layers must reference a valid `srs_id` that already exists in
+    /// `gpkg_spatial_ref_sys`. The GeoPackage spec requires a full SRS definition
+    /// (notably the WKT `definition` and descriptive metadata). In practice, this
+    /// data is often sourced from an external authority like EPSG, but this crate
+    /// does not bundle or generate that catalog. As a result, callers must insert
+    /// SRS entries themselves before creating layers, which is why this low-level
+    /// helper exists.
+    ///
+    /// This method performs a direct insert with all required columns and does
+    /// no validation of the WKT or authority fields. Use only if you understand
+    /// the GeoPackage SRS requirements and have authoritative metadata.
+    ///
+    /// Example: register EPSG:3857 (Web Mercator / Pseudo-Mercator).
+    /// ```
+    /// # use rusqlite_gpkg::Gpkg;
+    /// let gpkg = Gpkg::new_in_memory().expect("new gpkg");
+    /// let definition = r#"PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],EXTENSION["PROJ4","+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]"#;
+    /// gpkg.register_srs(
+    ///     "WGS 84 / Pseudo-Mercator",
+    ///     3857,
+    ///     "EPSG",
+    ///     3857,
+    ///     definition,
+    ///     "Web Mercator / Pseudo-Mercator (EPSG:3857)",
+    /// ).expect("register srs");
+    /// ```
+    pub fn register_srs(
+        &self,
+        srs_name: &str,
+        srs_id: i32,
+        organization: &str,
+        organization_coordsys_id: i32,
+        definition: &str,
+        description: &str,
+    ) -> Result<()> {
+        if self.read_only {
+            return Err(GpkgError::ReadOnly);
+        }
+
+        self.conn.execute(
+            "INSERT INTO gpkg_spatial_ref_sys \
+            (srs_name, srs_id, organization, organization_coordsys_id, definition, description) \
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![
+                srs_name,
+                srs_id,
+                organization,
+                organization_coordsys_id,
+                definition,
+                description
+            ],
+        )?;
+        Ok(())
+    }
+
     /// List the names of the layers.
     pub fn list_layers(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(SQL_LIST_LAYERS)?;
