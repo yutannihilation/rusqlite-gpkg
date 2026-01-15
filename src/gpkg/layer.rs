@@ -160,28 +160,10 @@ impl<'a> GpkgLayer<'a> {
     where
         G: GeometryTrait<T = f64>,
     {
-        self.ensure_writable()?;
+        let (geom, column_names) = self.geom_and_columns(geometry, properties.len())?;
 
-        let mut buf = Vec::new();
-        wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
-        let wkb = Wkb::try_new(&buf)?;
-        let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
-
-        if properties.len() != self.property_columns.len() {
-            return Err(GpkgError::InvalidPropertyCount {
-                expected: self.property_columns.len(),
-                got: properties.len(),
-            });
-        }
-
-        let mut values: Vec<&dyn rusqlite::ToSql> =
-            Vec::with_capacity(self.property_columns.len() + 1);
-        values.push(&geom);
-        values.extend(properties);
-
-        let mut column_names = Vec::with_capacity(self.property_columns.len() + 1);
-        column_names.push(self.geometry_column.clone());
-        column_names.extend(self.property_columns.iter().map(|col| col.name.clone()));
+        let params = std::iter::once(&geom as &dyn rusqlite::ToSql)
+            .chain(properties.iter().copied());
 
         let columns = column_names
             .iter()
@@ -195,7 +177,7 @@ impl<'a> GpkgLayer<'a> {
         let sql = sql_insert_feature(&self.layer_name, &columns, &placeholders);
 
         let mut stmt = self.conn.connection().prepare(&sql)?;
-        stmt.execute(params_from_iter(values))?;
+        stmt.execute(params_from_iter(params))?;
         Ok(())
     }
 
@@ -211,39 +193,16 @@ impl<'a> GpkgLayer<'a> {
     /// layer.update(Point::new(3.0, 4.0), &[&"beta", &false], 1)?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn update<G>(
-        &self,
-        geometry: G,
-        properties: &[&dyn rusqlite::ToSql],
-        id: i64,
-    ) -> Result<()>
+    pub fn update<G>(&self, geometry: G, properties: &[&dyn rusqlite::ToSql], id: i64) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
     {
-        self.ensure_writable()?;
+        let (geom, column_names) = self.geom_and_columns(geometry, properties.len())?;
 
-        let mut buf = Vec::new();
-        wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
-        let wkb = Wkb::try_new(&buf)?;
-        let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
-
-        if properties.len() != self.property_columns.len() {
-            return Err(GpkgError::InvalidPropertyCount {
-                expected: self.property_columns.len(),
-                got: properties.len(),
-            });
-        }
-
-        let mut values: Vec<&dyn rusqlite::ToSql> =
-            Vec::with_capacity(self.property_columns.len() + 2);
-        values.push(&geom);
-        values.extend(properties);
         let id_value = id;
-        values.push(&id_value);
-
-        let mut column_names = Vec::with_capacity(self.property_columns.len() + 1);
-        column_names.push(self.geometry_column.clone());
-        column_names.extend(self.property_columns.iter().map(|col| col.name.clone()));
+        let params = std::iter::once(&geom as &dyn rusqlite::ToSql)
+            .chain(properties.iter().copied())
+            .chain(std::iter::once(&id_value as &dyn rusqlite::ToSql));
 
         let assignments = column_names
             .iter()
@@ -258,7 +217,7 @@ impl<'a> GpkgLayer<'a> {
         );
 
         let mut stmt = self.conn.connection().prepare(&sql)?;
-        stmt.execute(params_from_iter(values))?;
+        stmt.execute(params_from_iter(params))?;
         Ok(())
     }
 
@@ -267,6 +226,35 @@ impl<'a> GpkgLayer<'a> {
             return Err(GpkgError::ReadOnly);
         }
         Ok(())
+    }
+
+    fn geom_and_columns<G>(
+        &self,
+        geometry: G,
+        property_count: usize,
+    ) -> Result<(Vec<u8>, Vec<String>)>
+    where
+        G: GeometryTrait<T = f64>,
+    {
+        self.ensure_writable()?;
+
+        let mut buf = Vec::new();
+        wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
+        let wkb = Wkb::try_new(&buf)?;
+        let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
+
+        if property_count != self.property_columns.len() {
+            return Err(GpkgError::InvalidPropertyCount {
+                expected: self.property_columns.len(),
+                got: property_count,
+            });
+        }
+
+        let mut column_names = Vec::with_capacity(self.property_columns.len() + 1);
+        column_names.push(self.geometry_column.clone());
+        column_names.extend(self.property_columns.iter().map(|col| col.name.clone()));
+
+        Ok((geom, column_names))
     }
 }
 
