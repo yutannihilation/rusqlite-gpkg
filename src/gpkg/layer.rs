@@ -14,31 +14,16 @@ use super::{Gpkg, GpkgFeature, GpkgFeatureIterator, wkb_to_gpkg_geometry};
 /// A GeoPackage layer with geometry metadata and column specs.
 pub struct GpkgLayer<'a> {
     pub(super) conn: &'a Gpkg,
-    pub(super) layer_name: String,
-    pub(super) geometry_column: String,
-    pub(super) primary_key_column: String,
+    pub layer_name: String,
+    pub geometry_column: String,
+    pub primary_key_column: String,
     pub geometry_type: wkb::reader::GeometryType,
     pub geometry_dimension: wkb::reader::Dimension,
     pub srs_id: u32,
-    pub(super) other_columns: Vec<ColumnSpec>,
+    pub property_columns: Vec<ColumnSpec>,
 }
 
 impl<'a> GpkgLayer<'a> {
-    /// Return the geometry column name.
-    pub fn geometry_column(&self) -> &str {
-        &self.geometry_column
-    }
-
-    /// Return the primary key column name.
-    pub fn primary_key_column(&self) -> &str {
-        &self.primary_key_column
-    }
-
-    /// Return the non-geometry columns in order.
-    pub fn property_columns(&self) -> &[ColumnSpec] {
-        &self.other_columns
-    }
-
     /// Iterate over features in the layer in rowid order.
     pub fn features(&self) -> Result<GpkgFeatureIterator> {
         let column_specs = self.conn.get_column_specs(&self.layer_name)?;
@@ -203,20 +188,20 @@ impl<'a> GpkgLayer<'a> {
         let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
 
         let properties: Vec<Value> = params.into_values()?;
-        if properties.len() != self.other_columns.len() {
+        if properties.len() != self.property_columns.len() {
             return Err(GpkgError::InvalidPropertyCount {
-                expected: self.other_columns.len(),
+                expected: self.property_columns.len(),
                 got: properties.len(),
             });
         }
 
-        let mut values = Vec::with_capacity(self.other_columns.len() + 1);
+        let mut values = Vec::with_capacity(self.property_columns.len() + 1);
         values.push(Value::Blob(geom));
         values.extend(properties);
 
-        let mut column_names = Vec::with_capacity(self.other_columns.len() + 1);
+        let mut column_names = Vec::with_capacity(self.property_columns.len() + 1);
         column_names.push(self.geometry_column.clone());
-        column_names.extend(self.other_columns.iter().map(|col| col.name.clone()));
+        column_names.extend(self.property_columns.iter().map(|col| col.name.clone()));
 
         Ok((values, column_names))
     }
@@ -332,7 +317,7 @@ mod tests {
     fn reads_geometry_and_properties_from_points() -> Result<()> {
         let gpkg = Gpkg::open_read_only(generated_gpkg_path())?;
         let layer = gpkg.open_layer("points")?;
-        let columns = layer.property_columns();
+        let columns = &layer.property_columns;
 
         let id_idx = property_index(columns, "id").expect("id column");
         let name_idx = property_index(columns, "name").expect("name column");

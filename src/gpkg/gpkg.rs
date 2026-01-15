@@ -171,7 +171,7 @@ impl Gpkg {
             geometry_type,
             geometry_dimension,
             srs_id,
-            other_columns,
+            property_columns: other_columns,
         })
     }
 
@@ -246,7 +246,7 @@ impl Gpkg {
             geometry_type,
             geometry_dimension,
             srs_id,
-            other_columns: other_column_specs.to_vec(),
+            property_columns: other_column_specs.to_vec(),
         })
     }
 

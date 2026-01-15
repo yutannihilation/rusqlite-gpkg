@@ -18,7 +18,7 @@
 //!             write_geometry(&mut wkt, &geom)?;
 //!             println!("{layer_name}: {wkt}");
 //!
-//!             for (idx, column) in layer.property_columns().iter().enumerate() {
+//!             for (idx, column) in layer.property_columns.iter().enumerate() {
 //!                 let value: Value = feature.property(idx)?;
 //!                 println!("  {} = {:?}", column.name, value);
 //!             }
