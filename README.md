@@ -12,7 +12,7 @@ Small GeoPackage reader/writer built on top of [rusqlite](https://crates.io/crat
 ### Reader
 
 ```rs
-use rusqlite_gpkg::Gpkg;
+use rusqlite_gpkg::{Gpkg, Value};
 use wkt::to_wkt::write_geometry;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,9 +21,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let layer = gpkg.layer(&layer_name)?;
         for feature in layer.features()? {
             let geom = feature.geometry()?;
+
+            // Use wkt to show the context of the geometry
             let mut wkt = String::new();
             write_geometry(&mut wkt, &geom)?;
             println!("{layer_name}: {wkt}");
+
+            for (idx, column) in layer.property_columns().iter().enumerate() {
+                let value: Value = feature.property(idx)?;
+                println!("  {} = {:?}", column.name, value);
+            }
         }
     }
     Ok(())
@@ -59,6 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &columns,
     )?;
 
+     // You can pass whatever object that implements GeometryTrait
     layer.insert(
         Point::new(1.0, 2.0),
         vec![Value::Text("alpha".to_string()), Value::Integer(7)],
