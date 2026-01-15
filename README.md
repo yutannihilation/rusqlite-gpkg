@@ -140,6 +140,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Value
+
+`Value` is the crate's owned dynamic value used for feature properties. It
+mirrors SQLite's dynamic typing (null, integer, real, text, blob) and is
+returned by `GpkgFeature::property` as `Option<Value>`. Convert using
+`try_into()` or match directly.
+
+```rs
+use rusqlite_gpkg::Gpkg;
+
+let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+let layer = gpkg.open_layer("points")?;
+let feature = layer.features()?.next().expect("feature");
+
+let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
+let active: bool = feature.property("active").ok_or("missing active")?.try_into()?;
+# Ok::<(), rusqlite_gpkg::GpkgError>(())
+```
+
 ### Writer
 
 ```rs

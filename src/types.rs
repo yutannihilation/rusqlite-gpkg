@@ -24,6 +24,25 @@ pub struct ColumnSpecs {
     pub other_columns: Vec<ColumnSpec>,
 }
 
+/// Owned dynamic value used for feature properties.
+///
+/// `Value` mirrors SQLite's dynamic types and is the primary property container
+/// in this crate. Access is explicit: `GpkgFeature::property` returns
+/// `Option<Value>`, and callers convert using `try_into()` or pattern matching.
+///
+/// Common conversions:
+/// - Integers: `i64`, `i32`, `u64`, etc.
+/// - Floats: `f64`, `f32`
+/// - Text: `String`, `&str`
+/// - Geometry: `wkb::reader::Wkb<'_>` from `Value::Geometry` or `Value::Blob`
+///
+/// ```no_run
+/// use rusqlite_gpkg::Value;
+///
+/// let value = Value::Text("alpha".to_string());
+/// let name: &str = (&value).try_into()?;
+/// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+/// ```
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Null,
