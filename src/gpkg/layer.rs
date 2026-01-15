@@ -1,11 +1,9 @@
+use crate::Value;
 use crate::error::{GpkgError, Result};
 use crate::ogc_sql::{sql_delete_all, sql_insert_feature, sql_select_features};
 use crate::types::ColumnSpec;
 use geo_traits::GeometryTrait;
-use rusqlite::{
-    params_from_iter,
-    types::{Type, Value},
-};
+use rusqlite::{params_from_iter, types::Type};
 use std::collections::HashMap;
 use std::sync::Arc;
 use wkb::reader::Wkb;
@@ -284,6 +282,7 @@ impl<'a> GpkgLayer<'a> {
 #[cfg(test)]
 mod tests {
     use crate::Result;
+    use crate::Value;
     use crate::conversions::geometry_type_to_str;
     use crate::gpkg::Gpkg;
     use crate::types::{ColumnSpec, ColumnType};
@@ -292,7 +291,6 @@ mod tests {
         Geometry, GeometryCollection, LineString, MultiLineString, MultiPoint, MultiPolygon, Point,
         Polygon,
     };
-    use rusqlite::types::Value;
     use std::str::FromStr;
     use wkb::reader::{GeometryType, Wkb};
     use wkt::Wkt;
@@ -380,10 +378,16 @@ mod tests {
         assert_eq!(geom.geometry_type(), GeometryType::Point);
 
         assert_eq!(feature.id(), 1);
-        assert_eq!(feature.property::<String>("name")?, "alpha");
-        assert_eq!(feature.property::<bool>("active")?, true);
+        let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
+        assert_eq!(name, "alpha");
 
-        let note = feature.property::<Value>("note")?;
+        let active: bool = feature
+            .property("active")
+            .ok_or("missing active")?
+            .try_into()?;
+        assert_eq!(active, true);
+
+        let note = feature.property("note").ok_or("missing note")?;
         assert_eq!(note, Value::Text("first".to_string()));
 
         Ok(())
@@ -663,8 +667,8 @@ mod tests {
             &columns,
         )?;
 
-        let value_a = Value::Text("a".to_string());
-        let value_b = Value::Text("b".to_string());
+        let value_a = "a".to_string();
+        let value_b = "b".to_string();
         layer.insert(Point::new(0.0, 0.0), &[&value_a])?;
         layer.insert(Point::new(1.0, 1.0), &[&value_b])?;
 
@@ -704,7 +708,7 @@ mod tests {
             &columns,
         )?;
 
-        let only = Value::Text("only".to_string());
+        let only = "only".to_string();
         let result = layer.insert(Point::new(0.0, 0.0), &[&only]);
         match result {
             Err(crate::error::GpkgError::InvalidPropertyCount { expected, got }) => {

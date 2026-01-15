@@ -53,7 +53,7 @@ impl GpkgFeature {
         gpkg_geometry_to_wkb(bytes)
     }
 
-    /// Read a property by name using rusqlite's `FromSql` conversion.
+    /// Read a property by name as an owned `Value`.
     ///
     /// Example:
     /// ```no_run
@@ -62,12 +62,15 @@ impl GpkgFeature {
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
     /// let layer = gpkg.open_layer("points")?;
     /// let feature = layer.features()?.next().expect("feature");
-    /// let value: String = feature.property("name")?;
+    /// let value: String = feature
+    ///     .property("name")
+    ///     .ok_or("missing name")?
+    ///     .try_into()?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn property(&self, name: &str) -> Option<&Value> {
+    pub fn property(&self, name: &str) -> Option<Value> {
         match self.property_index_by_name.get(name) {
-            Some(idx) => self.properties.get(*idx),
+            Some(idx) => self.properties.get(*idx).cloned(),
             None => None,
         }
     }
@@ -149,6 +152,7 @@ pub(crate) fn wkb_to_gpkg_geometry<'a>(wkb: Wkb<'a>, srs_id: u32) -> Result<Vec<
 mod tests {
     use super::{gpkg_geometry_to_wkb, wkb_to_gpkg_geometry};
     use crate::Result;
+    use crate::Value;
     use geo_types::Point;
     use wkb::reader::Wkb;
 
@@ -179,17 +183,14 @@ mod tests {
 
     #[test]
     fn property_invalid_index_reports_error() -> Result<()> {
-        use rusqlite::types::Value;
-
-        let feature =
-            super::GpkgFeature::new(1, Point::new(0.0, 0.0), vec![Value::Integer(1)], &["value"])?;
-        let err = feature
-            .property::<i64>("missing")
-            .expect_err("missing name should fail");
-        assert!(matches!(
-            err,
-            crate::error::GpkgError::Sql(rusqlite::Error::InvalidColumnName(_))
-        ));
+        let feature = super::GpkgFeature::new(
+            1,
+            Point::new(0.0, 0.0),
+            vec![Value::Integer(1)],
+            &["value"],
+        )?;
+        let value = feature.property("missing");
+        assert!(value.is_none());
         Ok(())
     }
 }

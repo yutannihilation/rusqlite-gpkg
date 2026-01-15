@@ -651,16 +651,32 @@ mod tests {
         assert_eq!(collected.len(), 2);
 
         assert_eq!(collected[0].id(), 1);
-        assert_eq!(collected[0].property::<String>("name")?, "alpha");
-        assert_eq!(collected[0].property::<i64>("value")?, 7);
+        let name: String = collected[0]
+            .property("name")
+            .ok_or("missing name")?
+            .try_into()?;
+        assert_eq!(name, "alpha");
+        let value: i64 = collected[0]
+            .property("value")
+            .ok_or("missing value")?
+            .try_into()?;
+        assert_eq!(value, 7);
         assert_eq!(
             collected[0].geometry()?.geometry_type(),
             GeometryType::Point
         );
 
         assert_eq!(collected[1].id(), 2);
-        assert_eq!(collected[1].property::<String>("name")?, "beta");
-        assert_eq!(collected[1].property::<i64>("value")?, 9);
+        let name: String = collected[1]
+            .property("name")
+            .ok_or("missing name")?
+            .try_into()?;
+        assert_eq!(name, "beta");
+        let value: i64 = collected[1]
+            .property("value")
+            .ok_or("missing value")?
+            .try_into()?;
+        assert_eq!(value, 9);
         assert_eq!(
             collected[1].geometry()?.geometry_type(),
             GeometryType::Point
@@ -713,16 +729,32 @@ mod tests {
         assert_eq!(collected.len(), 2);
 
         assert_eq!(collected[0].id(), 1);
-        assert_eq!(collected[0].property::<String>("name")?, "alpha");
-        assert_eq!(collected[0].property::<i64>("value")?, 7);
+        let name: String = collected[0]
+            .property("name")
+            .ok_or("missing name")?
+            .try_into()?;
+        assert_eq!(name, "alpha");
+        let value: i64 = collected[0]
+            .property("value")
+            .ok_or("missing value")?
+            .try_into()?;
+        assert_eq!(value, 7);
         assert_eq!(
             collected[0].geometry()?.geometry_type(),
             GeometryType::Point
         );
 
         assert_eq!(collected[1].id(), 2);
-        assert_eq!(collected[1].property::<String>("name")?, "beta");
-        assert_eq!(collected[1].property::<i64>("value")?, 9);
+        let name: String = collected[1]
+            .property("name")
+            .ok_or("missing name")?
+            .try_into()?;
+        assert_eq!(name, "beta");
+        let value: i64 = collected[1]
+            .property("value")
+            .ok_or("missing value")?
+            .try_into()?;
+        assert_eq!(value, 9);
         assert_eq!(
             collected[1].geometry()?.geometry_type(),
             GeometryType::Point

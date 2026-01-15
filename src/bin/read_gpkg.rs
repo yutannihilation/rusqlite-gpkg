@@ -1,5 +1,4 @@
-use rusqlite::types::Value;
-use rusqlite_gpkg::Gpkg;
+use rusqlite_gpkg::{Gpkg, Value};
 use wkt::to_wkt::write_geometry;
 
 fn main() {
@@ -28,7 +27,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             values.push(format!("{}={wkt}", layer.geometry_column));
 
             for column in &layer.property_columns {
-                let value = feature.property::<Value>(&column.name)?;
+                let value = feature.property(&column.name).unwrap_or(Value::Null);
                 values.push(format!("{}={}", column.name, format_value(&value)));
             }
 
@@ -45,6 +44,6 @@ fn format_value(value: &Value) -> String {
         Value::Integer(value) => value.to_string(),
         Value::Real(value) => value.to_string(),
         Value::Text(value) => value.clone(),
-        Value::Blob(value) => format!("{value:?}"),
+        Value::Blob(value) | Value::Geometry(value) => format!("{value:?}"),
     }
 }

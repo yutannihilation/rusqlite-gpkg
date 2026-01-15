@@ -1,3 +1,6 @@
+use crate::error::GpkgError;
+use wkb::reader::Wkb;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
 pub enum ColumnType {
@@ -19,4 +22,248 @@ pub struct ColumnSpecs {
     pub primary_key_column: String,
     pub geometry_column: String,
     pub other_columns: Vec<ColumnSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(String),
+    Blob(Vec<u8>),
+    Geometry(Vec<u8>), // we want to use Wkb struct here, but it requires a lifetime
+}
+
+impl From<rusqlite::types::Value> for Value {
+    #[inline]
+    fn from(value: rusqlite::types::Value) -> Self {
+        match value {
+            rusqlite::types::Value::Null => Value::Null,
+            rusqlite::types::Value::Integer(value) => Value::Integer(value),
+            rusqlite::types::Value::Real(value) => Value::Real(value),
+            rusqlite::types::Value::Text(value) => Value::Text(value),
+            rusqlite::types::Value::Blob(value) => Value::Blob(value),
+        }
+    }
+}
+
+impl<'a> From<rusqlite::types::ValueRef<'a>> for Value {
+    #[inline]
+    fn from(value: rusqlite::types::ValueRef<'a>) -> Self {
+        match value {
+            rusqlite::types::ValueRef::Null => Value::Null,
+            rusqlite::types::ValueRef::Integer(value) => Value::Integer(value),
+            rusqlite::types::ValueRef::Real(value) => Value::Real(value),
+            rusqlite::types::ValueRef::Text(value) => {
+                let s = std::str::from_utf8(value).expect("invalid UTF-8");
+                Value::Text(s.to_string())
+            }
+            rusqlite::types::ValueRef::Blob(value) => Value::Blob(value.to_vec()),
+        }
+    }
+}
+
+impl From<Value> for rusqlite::types::Value {
+    #[inline]
+    fn from(value: Value) -> Self {
+        match value {
+            Value::Null => rusqlite::types::Value::Null,
+            Value::Integer(value) => rusqlite::types::Value::Integer(value),
+            Value::Real(value) => rusqlite::types::Value::Real(value),
+            Value::Text(value) => rusqlite::types::Value::Text(value),
+            Value::Blob(value) | Value::Geometry(value) => rusqlite::types::Value::Blob(value),
+        }
+    }
+}
+
+#[inline]
+fn value_type_name(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "NULL",
+        Value::Integer(_) => "INTEGER",
+        Value::Real(_) => "REAL",
+        Value::Text(_) => "TEXT",
+        Value::Blob(_) => "BLOB",
+        Value::Geometry(_) => "GEOMETRY",
+    }
+}
+
+#[inline]
+fn invalid_type(expected: &'static str, value: &Value) -> GpkgError {
+    GpkgError::Message(format!(
+        "expected {expected}, got {}",
+        value_type_name(value)
+    ))
+}
+
+#[inline]
+fn out_of_range(expected: &'static str) -> GpkgError {
+    GpkgError::Message(format!("value out of range for {expected}"))
+}
+
+macro_rules! impl_try_from_int_ref {
+    ($t:ty) => {
+        impl TryFrom<&Value> for $t {
+            type Error = GpkgError;
+
+            #[inline]
+            fn try_from(value: &Value) -> Result<Self, Self::Error> {
+                match value {
+                    Value::Integer(v) => {
+                        <$t>::try_from(*v).map_err(|_| out_of_range(stringify!($t)))
+                    }
+                    _ => Err(invalid_type(stringify!($t), value)),
+                }
+            }
+        }
+
+        impl TryFrom<Value> for $t {
+            type Error = GpkgError;
+
+            #[inline]
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                (&value).try_into()
+            }
+        }
+    };
+}
+
+impl TryFrom<&Value> for i64 {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Integer(v) => Ok(*v),
+            _ => Err(invalid_type("i64", value)),
+        }
+    }
+}
+
+impl TryFrom<Value> for i64 {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
+impl_try_from_int_ref!(i32);
+impl_try_from_int_ref!(i16);
+impl_try_from_int_ref!(i8);
+impl_try_from_int_ref!(isize);
+impl_try_from_int_ref!(u64);
+impl_try_from_int_ref!(u32);
+impl_try_from_int_ref!(u16);
+impl_try_from_int_ref!(u8);
+impl_try_from_int_ref!(usize);
+
+impl TryFrom<&Value> for f64 {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Real(v) => Ok(*v),
+            Value::Integer(v) => Ok(*v as f64),
+            _ => Err(invalid_type("f64", value)),
+        }
+    }
+}
+
+impl TryFrom<Value> for f64 {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
+impl TryFrom<&Value> for f32 {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Real(v) => Ok(*v as f32),
+            Value::Integer(v) => Ok(*v as f32),
+            _ => Err(invalid_type("f32", value)),
+        }
+    }
+}
+
+impl TryFrom<Value> for f32 {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
+impl TryFrom<&Value> for bool {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Integer(0) => Ok(false),
+            Value::Integer(1) => Ok(true),
+            _ => Err(invalid_type("bool", value)),
+        }
+    }
+}
+
+impl TryFrom<Value> for bool {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
+impl TryFrom<Value> for String {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Text(s) => Ok(s),
+            other => Err(invalid_type("String", &other)),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a Value> for &'a str {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Text(s) => Ok(s.as_str()),
+            _ => Err(invalid_type("&str", value)),
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a Value> for Wkb<'a> {
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
+        let bytes = match value {
+            Value::Geometry(bytes) | Value::Blob(bytes) => bytes.as_slice(),
+            _ => return Err(invalid_type("Wkb", value)),
+        };
+
+        // TODO: Value::Geometry doesn't require this check as it's already proven
+        if bytes.len() >= 4 && bytes[0] == 0x47 && bytes[1] == 0x50 {
+            return Ok(crate::gpkg::gpkg_geometry_to_wkb(bytes)?);
+        }
+
+        Ok(Wkb::try_new(bytes)?)
+    }
 }

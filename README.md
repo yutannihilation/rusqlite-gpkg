@@ -81,7 +81,7 @@ let count = layer.features()?.count();
 
 `GpkgFeature` represents one row in a layer. You usually obtain it by iterating
 `GpkgLayer::features()`. It provides the primary key (`id()`), geometry (`geometry()`),
-and typed property access (`property<T>(idx)`). The geometry is returned as a
+and property access via `property(name)` returning an owned `Value`. The geometry is returned as a
 `wkb::reader::Wkb`, which you can inspect or convert to WKT for display.
 
 ```rs
@@ -95,7 +95,10 @@ let id = feature.id();
 let geom = feature.geometry()?;
 let mut wkt = String::new();
 write_geometry(&mut wkt, &geom)?;
-let name: String = feature.property("name")?;
+let name: String = feature
+    .property("name")
+    .ok_or("missing name")?
+    .try_into()?;
 # Ok::<(), rusqlite_gpkg::GpkgError>(())
 ```
 
@@ -128,7 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{layer_name}: {wkt}");
 
             for column in &layer.property_columns {
-                let value: Value = feature.property(&column.name)?;
+                let value = feature.property(&column.name).unwrap_or(Value::Null);
                 println!("  {} = {:?}", column.name, value);
             }
         }

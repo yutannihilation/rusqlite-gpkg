@@ -30,7 +30,10 @@
 //! let feature = layer.features()?.next().expect("feature");
 //! let _id = feature.id();
 //! let _geom = feature.geometry()?;
-//! let _name: String = feature.property("name")?;
+//! let _name: String = feature
+//!     .property("name")
+//!     .ok_or("missing name")?
+//!     .try_into()?;
 //! # Ok::<(), rusqlite_gpkg::GpkgError>(())
 //! ```
 //!
@@ -53,7 +56,7 @@
 //!             println!("{layer_name}: {wkt}");
 //!
 //!             for column in &layer.property_columns {
-//!                 let value: Value = feature.property(&column.name)?;
+//!                 let value = feature.property(&column.name).unwrap_or(Value::Null);
 //!                 println!("  {} = {:?}", column.name, value);
 //!             }
 //!         }
