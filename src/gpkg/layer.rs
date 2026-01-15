@@ -25,8 +25,8 @@ pub struct GpkgLayer<'a> {
 
 // When issueing the SELECT query, always place these columns first so that
 // we don't need to find the positions every time.
-const GEOMETRY_INDEX: usize = 0usize;
-const PRIMARY_INDEX: usize = 1usize;
+const GEOMETRY_INDEX: usize = 0;
+const PRIMARY_INDEX: usize = 1;
 
 impl<'a> GpkgLayer<'a> {
     /// Iterate over features in the layer in rowid order.
@@ -42,8 +42,8 @@ impl<'a> GpkgLayer<'a> {
 
         let sql = sql_select_features(
             &self.layer_name,
-            &column_specs.geometry_column.name,
-            &column_specs.primary_key_column.name,
+            &column_specs.geometry_column,
+            &column_specs.primary_key_column,
             columns,
         );
         let mut stmt = self.conn.connection().prepare(&sql)?;
@@ -57,12 +57,12 @@ impl<'a> GpkgLayer<'a> {
                 for idx in 0..row_len {
                     let value_ref = row.get_ref(idx)?;
                     let value = Value::from(value_ref);
-                    let spec = if idx == GEOMETRY_INDEX {
-                        &column_specs.geometry_column
+                    let name = if idx == GEOMETRY_INDEX {
+                        column_specs.geometry_column.as_str()
                     } else if idx == PRIMARY_INDEX {
-                        &column_specs.primary_key_column
+                        column_specs.primary_key_column.as_str()
                     } else {
-                        &column_specs.other_columns[idx - 2]
+                        column_specs.other_columns[idx - 2].name.as_str()
                     };
 
                     if idx == GEOMETRY_INDEX {
@@ -72,7 +72,7 @@ impl<'a> GpkgLayer<'a> {
                             _ => {
                                 return Err(rusqlite::Error::InvalidColumnType(
                                     idx,
-                                    spec.name.clone(),
+                                    name.to_string(),
                                     value_ref.data_type(),
                                 ));
                             }
@@ -83,7 +83,7 @@ impl<'a> GpkgLayer<'a> {
                             _ => {
                                 return Err(rusqlite::Error::InvalidColumnType(
                                     idx,
-                                    spec.name.clone(),
+                                    name.to_string(),
                                     value_ref.data_type(),
                                 ));
                             }
