@@ -197,9 +197,9 @@ impl<'a> GpkgLayer<'a> {
     {
         self.ensure_writable()?;
 
-        let mut wkb = Vec::new();
-        wkb::writer::write_geometry(&mut wkb, &geometry, &Default::default())?;
-        let wkb = Wkb::try_new(&wkb)?;
+        let mut buf = Vec::new();
+        wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
+        let wkb = Wkb::try_new(&buf)?;
         let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
 
         let properties: Vec<Value> = params.into_values()?;
@@ -250,9 +250,9 @@ mod tests {
         geometry: G,
         srs_id: u32,
     ) -> Result<Vec<u8>> {
-        let mut wkb = Vec::new();
-        wkb::writer::write_geometry(&mut wkb, &geometry, &Default::default())?;
-        let wkb = Wkb::try_new(&wkb)?;
+        let mut buf = Vec::new();
+        wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
+        let wkb = Wkb::try_new(&buf)?;
         super::super::wkb_to_gpkg_geometry(wkb, srs_id)
     }
 
@@ -274,9 +274,9 @@ mod tests {
         )?;
 
         let expected_blob = gpkg_blob_from_geometry(geometry.clone(), 4326)?;
-        let mut expected_wkb = Vec::new();
-        wkb::writer::write_geometry(&mut expected_wkb, &geometry, &Default::default())?;
-        let expected_wkb = Wkb::try_new(&expected_wkb)?;
+        let mut expected_wkb_bytes = Vec::new();
+        wkb::writer::write_geometry(&mut expected_wkb_bytes, &geometry, &Default::default())?;
+        let expected_wkb = Wkb::try_new(&expected_wkb_bytes)?;
 
         layer.insert(geometry, Vec::<Value>::new())?;
 

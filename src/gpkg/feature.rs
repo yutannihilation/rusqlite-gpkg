@@ -65,11 +65,11 @@ impl GpkgFeature {
         G: GeometryTrait<T = f64>,
         I: IntoIterator<Item = Value>,
     {
-        let mut wkb = Vec::new();
-        wkb::writer::write_geometry(&mut wkb, &geometry, &Default::default())?;
+        let mut buf = Vec::new();
+        wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
         Ok(Self {
             id,
-            geometry: Some(wkb),
+            geometry: Some(buf),
             properties: properties.into_iter().collect(),
         })
     }
@@ -132,9 +132,9 @@ mod tests {
     #[test]
     fn gpkg_geometry_roundtrip() -> Result<()> {
         let point = Point::new(3.0, -1.0);
-        let mut wkb = Vec::new();
-        wkb::writer::write_geometry(&mut wkb, &point, &Default::default())?;
-        let wkb = Wkb::try_new(&wkb)?;
+        let mut buf = Vec::new();
+        wkb::writer::write_geometry(&mut buf, &point, &Default::default())?;
+        let wkb = Wkb::try_new(&buf)?;
         let expected = wkb.buf().to_vec();
         let gpkg_blob = wkb_to_gpkg_geometry(wkb, 4326)?;
 
