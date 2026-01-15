@@ -19,7 +19,7 @@ pub struct ColumnSpec {
 
 #[derive(Clone, Debug)]
 pub struct ColumnSpecs {
-    pub primary_key: String,
+    pub primary_key_column: ColumnSpec,
     pub geometry_column: ColumnSpec,
     pub other_columns: Vec<ColumnSpec>,
 }

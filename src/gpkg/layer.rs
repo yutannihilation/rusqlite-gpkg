@@ -23,42 +23,49 @@ pub struct GpkgLayer<'a> {
     pub property_columns: Vec<ColumnSpec>,
 }
 
+// When issueing the SELECT query, always place these columns first so that
+// we don't need to find the positions every time.
+const GEOMETRY_INDEX: usize = 0usize;
+const PRIMARY_INDEX: usize = 1usize;
+
 impl<'a> GpkgLayer<'a> {
     /// Iterate over features in the layer in rowid order.
     pub fn features(&self) -> Result<GpkgFeatureIterator> {
         let column_specs = self
             .conn
             .get_column_specs(&self.layer_name, &self.geometry_column)?;
-        let primary_index = column_specs
+
+        let columns = column_specs
             .other_columns
             .iter()
-            .position(|spec| spec.name == self.primary_key_column)
-            .ok_or_else(|| rusqlite::Error::InvalidColumnName(self.primary_key_column.clone()))?;
-        let geometry_index = 0usize;
-        let primary_index = primary_index + 1;
-        let columns = std::iter::once(column_specs.geometry_column.name.as_str())
-            .chain(column_specs.other_columns.iter().map(|spec| spec.name.as_str()))
-            .map(|name| format!(r#""{}""#, name))
-            .collect::<Vec<String>>()
-            .join(",");
-        let sql = sql_select_features(&self.layer_name, &columns);
+            .map(|spec| spec.name.as_str());
+
+        let sql = sql_select_features(
+            &self.layer_name,
+            &column_specs.geometry_column.name,
+            &column_specs.primary_key_column.name,
+            columns,
+        );
         let mut stmt = self.conn.connection().prepare(&sql)?;
         let features = stmt
             .query_map([], |row| {
                 let mut id: Option<i64> = None;
                 let mut geometry: Option<Vec<u8>> = None;
                 let mut properties = Vec::with_capacity(column_specs.other_columns.len());
+                let row_len = column_specs.other_columns.len() + 2;
 
-                for idx in 0..=column_specs.other_columns.len() {
+                for idx in 0..row_len {
                     let value_ref = row.get_ref(idx)?;
                     let value = Value::from(value_ref);
-                    let spec = if idx == geometry_index {
+                    let spec = if idx == GEOMETRY_INDEX {
                         &column_specs.geometry_column
+                    } else if idx == PRIMARY_INDEX {
+                        &column_specs.primary_key_column
                     } else {
-                        &column_specs.other_columns[idx - 1]
+                        &column_specs.other_columns[idx - 2]
                     };
 
-                    if idx == geometry_index {
+                    if idx == GEOMETRY_INDEX {
                         match value {
                             Value::Blob(bytes) => geometry = Some(bytes),
                             Value::Null => geometry = None,
@@ -70,7 +77,7 @@ impl<'a> GpkgLayer<'a> {
                                 ));
                             }
                         }
-                    } else if idx == primary_index {
+                    } else if idx == PRIMARY_INDEX {
                         match &value {
                             Value::Integer(value) => id = Some(*value),
                             _ => {
@@ -81,7 +88,6 @@ impl<'a> GpkgLayer<'a> {
                                 ));
                             }
                         }
-                        properties.push(value);
                     } else {
                         properties.push(value);
                     }
@@ -89,7 +95,7 @@ impl<'a> GpkgLayer<'a> {
 
                 let id = id.ok_or_else(|| {
                     rusqlite::Error::InvalidColumnType(
-                        primary_index,
+                        PRIMARY_INDEX,
                         self.primary_key_column.clone(),
                         Type::Null,
                     )
@@ -321,7 +327,6 @@ mod tests {
         let layer = gpkg.open_layer("points")?;
         let columns = &layer.property_columns;
 
-        let id_idx = property_index(columns, "id").expect("id column");
         let name_idx = property_index(columns, "name").expect("name column");
         let active_idx = property_index(columns, "active").expect("active column");
         let note_idx = property_index(columns, "note").expect("note column");
@@ -332,7 +337,7 @@ mod tests {
         let geom = feature.geometry()?;
         assert_eq!(geom.geometry_type(), GeometryType::Point);
 
-        assert_eq!(feature.property::<i64>(id_idx)?, 1);
+        assert_eq!(feature.id(), 1);
         assert_eq!(feature.property::<String>(name_idx)?, "alpha");
         assert_eq!(feature.property::<bool>(active_idx)?, true);
 

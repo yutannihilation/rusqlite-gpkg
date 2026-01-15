@@ -65,8 +65,30 @@ pub(crate) fn sql_table_columns(layer_name: &str) -> String {
     format!("SELECT name, type, pk FROM pragma_table_info('{layer_name}')")
 }
 
-pub(crate) fn sql_select_features(layer_name: &str, columns: &str) -> String {
-    format!(r#"SELECT {} FROM "{}" ORDER BY rowid"#, columns, layer_name)
+pub(crate) fn sql_select_features<'a, I>(
+    layer_name: &'a str,
+    geometry_column: &'a str,
+    primary_key_column: &'a str,
+    other_columns: I,
+) -> String
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let joined = other_columns
+        .into_iter()
+        .map(|name| format!(r#""{}""#, name))
+        .collect::<Vec<String>>()
+        .join(", ");
+
+    if joined.is_empty() {
+        format!(
+            r#"SELECT "{geometry_column}", "{primary_key_column}" FROM "{layer_name}" ORDER BY "{primary_key_column}""#,
+        )
+    } else {
+        format!(
+            r#"SELECT "{geometry_column}", "{primary_key_column}", {joined} FROM "{layer_name}" ORDER BY "{primary_key_column}""#,
+        )
+    }
 }
 
 pub(crate) fn sql_delete_all(layer_name: &str) -> String {

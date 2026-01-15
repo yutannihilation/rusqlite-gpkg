@@ -156,7 +156,7 @@ impl Gpkg {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
         let column_specs = self.get_column_specs(layer_name, &geometry_column)?;
-        let primary_key_column = column_specs.primary_key.clone();
+        let primary_key_column = column_specs.primary_key_column.name.clone();
         let other_columns = column_specs.other_columns;
 
         Ok(GpkgLayer {
@@ -278,7 +278,7 @@ impl Gpkg {
         let query = sql_table_columns(layer_name);
         let mut stmt = self.conn.prepare(&query)?;
 
-        let mut primary_key: Option<String> = None;
+        let mut primary_key_spec: Option<ColumnSpec> = None;
         let mut geometry_spec: Option<ColumnSpec> = None;
         let column_specs = stmt.query_map([], |row| {
             let name: String = row.get(0)?;
@@ -303,12 +303,13 @@ impl Gpkg {
         let mut other_columns = Vec::new();
         for (name, column_type, is_primary_key) in result? {
             if is_primary_key {
-                if primary_key.is_some() {
+                if primary_key_spec.is_some() {
                     return Err(GpkgError::Message(format!(
                         "Composite primary keys are not supported yet for layer: {layer_name}"
                     )));
                 }
-                primary_key = Some(name.clone());
+                primary_key_spec = Some(ColumnSpec { name, column_type });
+                continue;
             }
             if name == geometry_column {
                 geometry_spec = Some(ColumnSpec { name, column_type });
@@ -317,7 +318,7 @@ impl Gpkg {
             }
         }
 
-        let primary_key = primary_key.ok_or_else(|| {
+        let primary_key_column = primary_key_spec.ok_or_else(|| {
             GpkgError::Message(format!(
                 "No primary key column found for layer: {layer_name}"
             ))
@@ -328,7 +329,7 @@ impl Gpkg {
         })?;
 
         Ok(ColumnSpecs {
-            primary_key,
+            primary_key_column,
             geometry_column,
             other_columns,
         })
