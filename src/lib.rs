@@ -2,9 +2,10 @@
 //!
 //! ## Overview
 //!
-//! - `Gpkg` opens or creates a GeoPackage, lists layers, and creates new layers.
-//! - `GpkgLayer` reads features and inserts or updates feature rows.
-//! - `GpkgFeature` gives access to geometry, properties, and the row id.
+//! - `Gpkg` represents the whole data of GeoPackage data.
+//! - `GpkgLayer` represents a single layer in the data.
+//! - `GpkgFeature` represents a single feature in the layer.
+//! - `Value` represents a single property value related to the feature.
 //!
 //! `Gpkg` is the entry point and supports several open modes:
 //!
@@ -63,24 +64,6 @@
 //!     }
 //!     Ok(())
 //! }
-//! ```
-//!
-//! ## Value
-//!
-//! `Value` is the crate's owned dynamic type for feature properties. Property
-//! access returns `Option<Value>`, so you can either pattern match or convert
-//! with `try_into()`:
-//!
-//! ```no_run
-//! use rusqlite_gpkg::Gpkg;
-//!
-//! let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-//! let layer = gpkg.open_layer("points")?;
-//! let feature = layer.features()?.next().expect("feature");
-//!
-//! let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
-//! let active: bool = feature.property("active").ok_or("missing active")?.try_into()?;
-//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
 //! ```
 //!
 //! ## Writer

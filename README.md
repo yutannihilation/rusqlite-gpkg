@@ -11,14 +11,13 @@ GeoPackage reader/writer built on top of [rusqlite](https://crates.io/crates/rus
 
 `rusqlite-gpkg` provides a small API around the main GeoPackage concepts:
 
-- `Gpkg`: open or create a GeoPackage, list layers, and create new layers.
-- `GpkgLayer`: access feature rows, insert geometries with properties, or truncate data.
-- `GpkgFeature`: read geometry and properties from a single row.
+- `Gpkg` represents the whole data of GeoPackage data.
+- `GpkgLayer` represents a single layer in the data.
+- `GpkgFeature` represents a single feature in the layer.
+- `Value` represents a single property value related to the feature.
 
 The library focuses on simple, explicit flows. You control how layers are created
 and which property columns are present.
-
-## Short usage
 
 ### Gpkg
 
@@ -102,6 +101,25 @@ let name: String = feature
 # Ok::<(), rusqlite_gpkg::GpkgError>(())
 ```
 
+### Value
+
+`Value` is the crate's owned dynamic value used for feature properties. It
+mirrors SQLite's dynamic typing (null, integer, real, text, blob) and is
+returned by `GpkgFeature::property` as `Option<Value>`. Convert using
+`try_into()` or match directly.
+
+```rs
+use rusqlite_gpkg::Gpkg;
+
+let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+let layer = gpkg.open_layer("points")?;
+let feature = layer.features()?.next().expect("feature");
+
+let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
+let active: bool = feature.property("active").ok_or("missing active")?.try_into()?;
+# Ok::<(), rusqlite_gpkg::GpkgError>(())
+```
+
 ## Disclaimer
 
 Most of the implementation is coded by Codex, while the primary idea is based on my own work in <https://github.com/yutannihilation/duckdb-ext-st-read-multi/pulls>. This probably requires more testing against real data; feedback is welcome!
@@ -138,25 +156,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     Ok(())
 }
-```
-
-## Value
-
-`Value` is the crate's owned dynamic value used for feature properties. It
-mirrors SQLite's dynamic typing (null, integer, real, text, blob) and is
-returned by `GpkgFeature::property` as `Option<Value>`. Convert using
-`try_into()` or match directly.
-
-```rs
-use rusqlite_gpkg::Gpkg;
-
-let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-let layer = gpkg.open_layer("points")?;
-let feature = layer.features()?.next().expect("feature");
-
-let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
-let active: bool = feature.property("active").ok_or("missing active")?.try_into()?;
-# Ok::<(), rusqlite_gpkg::GpkgError>(())
 ```
 
 ### Writer
