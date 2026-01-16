@@ -152,17 +152,33 @@ impl<'a> GpkgLayer<'a> {
     /// let layer = gpkg.get_layer("points")?;
     ///
     /// let properties = vec![Value::Text("alpha".to_string()), Value::Integer(1)];
-    /// layer.insert(Point::new(1.0, 2.0), properties)?;
+    /// layer.insert(Point::new(1.0, 2.0), &properties)?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn insert<G, P>(&self, geometry: G, properties: P) -> Result<()>
+    pub fn insert<'p, G, P>(&self, geometry: G, properties: P) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
-        P: IntoIterator<Item = Value>,
+        P: IntoIterator<Item = &'p Value>,
     {
         let geom = self.geom_from_geometry(geometry)?;
 
-        let params = std::iter::once(Value::Geometry(geom)).chain(properties.into_iter());
+        enum SqlParam<'a> {
+            Owned(Value),
+            Borrowed(&'a Value),
+        }
+
+        impl<'a> rusqlite::ToSql for SqlParam<'a> {
+            #[inline]
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+                match self {
+                    SqlParam::Owned(value) => value.to_sql(),
+                    SqlParam::Borrowed(value) => value.to_sql(),
+                }
+            }
+        }
+
+        let params = std::iter::once(SqlParam::Owned(Value::Geometry(geom)))
+            .chain(properties.into_iter().map(SqlParam::Borrowed));
 
         let mut stmt = self.conn.connection().prepare_cached(&self.insert_sql)?;
         stmt.execute(params_from_iter(params))?;
@@ -178,20 +194,35 @@ impl<'a> GpkgLayer<'a> {
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
     /// let layer = gpkg.get_layer("points")?;
-    /// layer.update(Point::new(3.0, 4.0), vec![Value::from("beta"), Value::from(false)], 1)?;
+    /// let properties = vec![Value::from("beta"), Value::from(false)];
+    /// layer.update(Point::new(3.0, 4.0), &properties, 1)?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn update<G, P>(&self, geometry: G, properties: P, id: i64) -> Result<()>
+    pub fn update<'p, G, P>(&self, geometry: G, properties: P, id: i64) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
-        P: IntoIterator<Item = Value>,
+        P: IntoIterator<Item = &'p Value>,
     {
         let geom = self.geom_from_geometry(geometry)?;
 
-        let id_value = id;
-        let params = std::iter::once(Value::Geometry(geom))
-            .chain(properties.into_iter())
-            .chain(std::iter::once(Value::Integer(id_value)));
+        enum SqlParam<'a> {
+            Owned(Value),
+            Borrowed(&'a Value),
+        }
+
+        impl<'a> rusqlite::ToSql for SqlParam<'a> {
+            #[inline]
+            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+                match self {
+                    SqlParam::Owned(value) => value.to_sql(),
+                    SqlParam::Borrowed(value) => value.to_sql(),
+                }
+            }
+        }
+
+        let params = std::iter::once(SqlParam::Owned(Value::Geometry(geom)))
+            .chain(properties.into_iter().map(SqlParam::Borrowed))
+            .chain(std::iter::once(SqlParam::Owned(Value::Integer(id))));
 
         let mut stmt = self.conn.connection().prepare_cached(&self.update_sql)?;
         stmt.execute(params_from_iter(params))?;
@@ -327,7 +358,7 @@ mod tests {
         wkb::writer::write_geometry(&mut expected_wkb_bytes, &geometry, &Default::default())?;
         let expected_wkb = Wkb::try_new(&expected_wkb_bytes)?;
 
-        layer.insert(geometry, [])?;
+        layer.insert(geometry, std::iter::empty::<&Value>())?;
 
         let geom_blob: Vec<u8> = layer.conn.connection().query_row(
             &format!(r#"SELECT "geom" FROM "{}""#, layer_name),
@@ -456,13 +487,15 @@ mod tests {
         let point_a = Point::new(1.0, 2.0);
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
-        layer.insert(point_a, [Value::from(name_a), Value::from(value_a)])?;
+        let properties_a = [Value::from(name_a), Value::from(value_a)];
+        layer.insert(point_a, properties_a.iter())?;
         let id = layer.conn.connection().last_insert_rowid();
 
         let point_b = Point::new(4.0, 5.0);
         let name_b = "beta".to_string();
         let value_b = 9_i64;
-        layer.update(point_b, [Value::from(name_b), Value::from(value_b)], id)?;
+        let properties_b = [Value::from(name_b), Value::from(value_b)];
+        layer.update(point_b, properties_b.iter(), id)?;
 
         let (geom_blob, name, value): (Vec<u8>, String, i64) = layer.conn.connection().query_row(
             "SELECT geom, name, value FROM points WHERE fid = ?1",
@@ -610,7 +643,7 @@ mod tests {
         )?;
 
         let point_a = Point::new(1.5, -2.0);
-        layer.insert(point_a, [])?;
+        layer.insert(point_a, std::iter::empty::<&Value>())?;
         let id = layer.conn.connection().last_insert_rowid();
 
         let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
@@ -624,7 +657,7 @@ mod tests {
         assert_eq!(maxy, -2.0);
 
         let point_b = Point::new(-4.0, 6.25);
-        layer.update(point_b, [], id)?;
+        layer.update(point_b, std::iter::empty::<&Value>(), id)?;
         let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
             "SELECT minx, maxx, miny, maxy FROM rtree_rtree_points_geom WHERE id = ?1",
             [id],
@@ -665,8 +698,10 @@ mod tests {
 
         let value_a = "a".to_string();
         let value_b = "b".to_string();
-        layer.insert(Point::new(0.0, 0.0), [Value::from(value_a)])?;
-        layer.insert(Point::new(1.0, 1.0), [Value::from(value_b)])?;
+        let properties_a = [Value::from(value_a)];
+        layer.insert(Point::new(0.0, 0.0), properties_a.iter())?;
+        let properties_b = [Value::from(value_b)];
+        layer.insert(Point::new(1.0, 1.0), properties_b.iter())?;
 
         let deleted = layer.truncate()?;
         assert_eq!(deleted, 2);
@@ -705,7 +740,8 @@ mod tests {
         )?;
 
         let only = "only".to_string();
-        let result = layer.insert(Point::new(0.0, 0.0), [Value::from(only)]);
+        let properties = [Value::from(only)];
+        let result = layer.insert(Point::new(0.0, 0.0), properties.iter());
         match result {
             Err(crate::GpkgError::Sql(rusqlite::Error::InvalidParameterCount(_, _))) => {}
             e => panic!("expected InvalidParameterCount error: {e:?}"),

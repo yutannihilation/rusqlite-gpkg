@@ -95,9 +95,10 @@
 //!     )?;
 //!
 //!     
+//!     let properties = [Value::from("alpha"), Value::from(7_i64)];
 //!     layer.insert(
-//!         Point::new(1.0, 2.0),    // geometry: You can pass whatever object that implements GeometryTrait
-//!         [Value::from("alpha"), Value::from(7_i64)]  // other properties: Use params! macro to create &[&dyn ToSQL]
+//!         Point::new(1.0, 2.0),  // geometry: You can pass whatever object that implements GeometryTrait
+//!         &properties,           // other properties: pass references to Value
 //!     )?;
 //!
 //!     Ok(())

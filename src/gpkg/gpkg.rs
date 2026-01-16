@@ -237,7 +237,8 @@ impl Gpkg {
     ///     4326,
     ///     &columns,
     /// )?;
-    /// layer.insert(Point::new(1.0, 2.0), vec![Value::from("alpha")])?;
+    /// let properties = vec![Value::from("alpha")];
+    /// layer.insert(Point::new(1.0, 2.0), properties.iter())?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn create_layer<'a>(
@@ -567,16 +568,12 @@ mod tests {
 
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
-        layer.insert(
-            Point::new(1.0, 2.0),
-            [Value::from(name_a), Value::from(value_a)],
-        )?;
+        let properties_a = [Value::from(name_a), Value::from(value_a)];
+        layer.insert(Point::new(1.0, 2.0), properties_a.iter())?;
         let name_b = "beta".to_string();
         let value_b = 9_i64;
-        layer.insert(
-            Point::new(-3.0, 4.5),
-            [Value::from(name_b), Value::from(value_b)],
-        )?;
+        let properties_b = [Value::from(name_b), Value::from(value_b)];
+        layer.insert(Point::new(-3.0, 4.5), properties_b.iter())?;
 
         let dump = gpkg.to_bytes()?;
         let mut path = std::env::temp_dir();
@@ -657,16 +654,12 @@ mod tests {
 
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
-        layer.insert(
-            Point::new(1.0, 2.0),
-            [Value::from(name_a), Value::from(value_a)],
-        )?;
+        let properties_a = [Value::from(name_a), Value::from(value_a)];
+        layer.insert(Point::new(1.0, 2.0), properties_a.iter())?;
         let name_b = "beta".to_string();
         let value_b = 9_i64;
-        layer.insert(
-            Point::new(-3.0, 4.5),
-            [Value::from(name_b), Value::from(value_b)],
-        )?;
+        let properties_b = [Value::from(name_b), Value::from(value_b)];
+        layer.insert(Point::new(-3.0, 4.5), properties_b.iter())?;
 
         let dump = gpkg.to_bytes()?;
 

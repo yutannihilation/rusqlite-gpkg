@@ -107,13 +107,6 @@ impl rusqlite::ToSql for Value {
     }
 }
 
-// impl rusqlite::ToSql for &Value {
-//     #[inline]
-//     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-//         value_to_sql_output(self)
-//     }
-// }
-
 impl From<rusqlite::types::Value> for Value {
     #[inline]
     fn from(value: rusqlite::types::Value) -> Self {
