@@ -53,6 +53,67 @@ pub enum Value {
     Geometry(Vec<u8>), // we want to use Wkb struct here, but it requires a lifetime
 }
 
+impl From<f64> for Value {
+    fn from(value: f64) -> Self {
+        Value::Real(value)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(value: i64) -> Self {
+        Value::Integer(value)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::Text(value.to_string())
+    }
+}
+
+impl From<String> for Value {
+    fn from(value: String) -> Self {
+        Value::Text(value)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Value::Integer(if value { 1 } else { 0 })
+    }
+}
+
+#[inline]
+fn value_to_sql_output(value: &Value) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+    use rusqlite::types::{ToSqlOutput, ValueRef};
+
+    let output = match value {
+        Value::Null => ToSqlOutput::Borrowed(ValueRef::Null),
+        Value::Integer(v) => ToSqlOutput::Borrowed(ValueRef::Integer(*v)),
+        Value::Real(v) => ToSqlOutput::Borrowed(ValueRef::Real(*v)),
+        Value::Text(s) => ToSqlOutput::Borrowed(ValueRef::Text(s.as_bytes())),
+        Value::Blob(items) | Value::Geometry(items) => {
+            ToSqlOutput::Borrowed(ValueRef::Blob(items.as_slice()))
+        }
+    };
+
+    Ok(output)
+}
+
+impl rusqlite::ToSql for Value {
+    #[inline]
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        value_to_sql_output(self)
+    }
+}
+
+// impl rusqlite::ToSql for &Value {
+//     #[inline]
+//     fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+//         value_to_sql_output(self)
+//     }
+// }
+
 impl From<rusqlite::types::Value> for Value {
     #[inline]
     fn from(value: rusqlite::types::Value) -> Self {

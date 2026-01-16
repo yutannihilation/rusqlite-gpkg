@@ -222,7 +222,7 @@ impl Gpkg {
     /// Example:
     /// ```no_run
     /// use geo_types::Point;
-    /// use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg};
+    /// use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, Value};
     ///
     /// let gpkg = Gpkg::open_in_memory()?;
     /// let columns = vec![ColumnSpec {
@@ -237,7 +237,7 @@ impl Gpkg {
     ///     4326,
     ///     &columns,
     /// )?;
-    /// layer.insert(Point::new(1.0, 2.0), &[&"alpha"])?;
+    /// layer.insert(Point::new(1.0, 2.0), vec![Value::from("alpha")])?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn create_layer<'a>(
@@ -501,6 +501,7 @@ impl Gpkg {
 #[cfg(test)]
 mod tests {
     use super::Gpkg;
+    use crate::Value;
     use crate::error::GpkgError;
     use crate::types::{ColumnSpec, ColumnType};
     use geo_types::Point;
@@ -566,10 +567,16 @@ mod tests {
 
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
-        layer.insert(Point::new(1.0, 2.0), &[&name_a, &value_a])?;
+        layer.insert(
+            Point::new(1.0, 2.0),
+            [Value::from(name_a), Value::from(value_a)],
+        )?;
         let name_b = "beta".to_string();
         let value_b = 9_i64;
-        layer.insert(Point::new(-3.0, 4.5), &[&name_b, &value_b])?;
+        layer.insert(
+            Point::new(-3.0, 4.5),
+            [Value::from(name_b), Value::from(value_b)],
+        )?;
 
         let dump = gpkg.to_bytes()?;
         let mut path = std::env::temp_dir();
@@ -650,10 +657,16 @@ mod tests {
 
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
-        layer.insert(Point::new(1.0, 2.0), &[&name_a, &value_a])?;
+        layer.insert(
+            Point::new(1.0, 2.0),
+            [Value::from(name_a), Value::from(value_a)],
+        )?;
         let name_b = "beta".to_string();
         let value_b = 9_i64;
-        layer.insert(Point::new(-3.0, 4.5), &[&name_b, &value_b])?;
+        layer.insert(
+            Point::new(-3.0, 4.5),
+            [Value::from(name_b), Value::from(value_b)],
+        )?;
 
         let dump = gpkg.to_bytes()?;
 

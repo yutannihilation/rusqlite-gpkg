@@ -146,21 +146,23 @@ impl<'a> GpkgLayer<'a> {
     /// Example:
     /// ```no_run
     /// use geo_types::Point;
-    /// use rusqlite_gpkg::Gpkg;
+    /// use rusqlite_gpkg::{Gpkg, Value};
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
     /// let layer = gpkg.get_layer("points")?;
-    /// layer.insert(Point::new(1.0, 2.0), &[&"alpha", &true])?;
+    ///
+    /// let properties = vec![Value::Text("alpha".to_string()), Value::Integer(1)];
+    /// layer.insert(Point::new(1.0, 2.0), properties)?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn insert<G>(&self, geometry: G, properties: &[&dyn rusqlite::ToSql]) -> Result<()>
+    pub fn insert<G, P>(&self, geometry: G, properties: P) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
+        P: IntoIterator<Item = Value>,
     {
-        let geom = self.geom_from_geometry(geometry, properties.len())?;
+        let geom = self.geom_from_geometry(geometry)?;
 
-        let params =
-            std::iter::once(&geom as &dyn rusqlite::ToSql).chain(properties.iter().copied());
+        let params = std::iter::once(Value::Geometry(geom)).chain(properties.into_iter());
 
         let mut stmt = self.conn.connection().prepare_cached(&self.insert_sql)?;
         stmt.execute(params_from_iter(params))?;
@@ -172,23 +174,24 @@ impl<'a> GpkgLayer<'a> {
     /// Example:
     /// ```no_run
     /// use geo_types::Point;
-    /// use rusqlite_gpkg::Gpkg;
+    /// use rusqlite_gpkg::{Gpkg, Value};
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
     /// let layer = gpkg.get_layer("points")?;
-    /// layer.update(Point::new(3.0, 4.0), &[&"beta", &false], 1)?;
+    /// layer.update(Point::new(3.0, 4.0), vec![Value::from("beta"), Value::from(false)], 1)?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn update<G>(&self, geometry: G, properties: &[&dyn rusqlite::ToSql], id: i64) -> Result<()>
+    pub fn update<G, P>(&self, geometry: G, properties: P, id: i64) -> Result<()>
     where
         G: GeometryTrait<T = f64>,
+        P: IntoIterator<Item = Value>,
     {
-        let geom = self.geom_from_geometry(geometry, properties.len())?;
+        let geom = self.geom_from_geometry(geometry)?;
 
         let id_value = id;
-        let params = std::iter::once(&geom as &dyn rusqlite::ToSql)
-            .chain(properties.iter().copied())
-            .chain(std::iter::once(&id_value as &dyn rusqlite::ToSql));
+        let params = std::iter::once(Value::Geometry(geom))
+            .chain(properties.into_iter())
+            .chain(std::iter::once(Value::Integer(id_value)));
 
         let mut stmt = self.conn.connection().prepare_cached(&self.update_sql)?;
         stmt.execute(params_from_iter(params))?;
@@ -257,7 +260,7 @@ impl<'a> GpkgLayer<'a> {
         property_index_by_name
     }
 
-    fn geom_from_geometry<G>(&self, geometry: G, property_count: usize) -> Result<Vec<u8>>
+    fn geom_from_geometry<G>(&self, geometry: G) -> Result<Vec<u8>>
     where
         G: GeometryTrait<T = f64>,
     {
@@ -267,13 +270,6 @@ impl<'a> GpkgLayer<'a> {
         wkb::writer::write_geometry(&mut buf, &geometry, &Default::default())?;
         let wkb = Wkb::try_new(&buf)?;
         let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
-
-        if property_count != self.property_columns.len() {
-            return Err(GpkgError::InvalidPropertyCount {
-                expected: self.property_columns.len(),
-                got: property_count,
-            });
-        }
 
         Ok(geom)
     }
@@ -331,7 +327,7 @@ mod tests {
         wkb::writer::write_geometry(&mut expected_wkb_bytes, &geometry, &Default::default())?;
         let expected_wkb = Wkb::try_new(&expected_wkb_bytes)?;
 
-        layer.insert(geometry, &[])?;
+        layer.insert(geometry, [])?;
 
         let geom_blob: Vec<u8> = layer.conn.connection().query_row(
             &format!(r#"SELECT "geom" FROM "{}""#, layer_name),
@@ -460,13 +456,13 @@ mod tests {
         let point_a = Point::new(1.0, 2.0);
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
-        layer.insert(point_a, &[&name_a, &value_a])?;
+        layer.insert(point_a, [Value::from(name_a), Value::from(value_a)])?;
         let id = layer.conn.connection().last_insert_rowid();
 
         let point_b = Point::new(4.0, 5.0);
         let name_b = "beta".to_string();
         let value_b = 9_i64;
-        layer.update(point_b, &[&name_b, &value_b], id)?;
+        layer.update(point_b, [Value::from(name_b), Value::from(value_b)], id)?;
 
         let (geom_blob, name, value): (Vec<u8>, String, i64) = layer.conn.connection().query_row(
             "SELECT geom, name, value FROM points WHERE fid = ?1",
@@ -614,7 +610,7 @@ mod tests {
         )?;
 
         let point_a = Point::new(1.5, -2.0);
-        layer.insert(point_a, &[])?;
+        layer.insert(point_a, [])?;
         let id = layer.conn.connection().last_insert_rowid();
 
         let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
@@ -628,7 +624,7 @@ mod tests {
         assert_eq!(maxy, -2.0);
 
         let point_b = Point::new(-4.0, 6.25);
-        layer.update(point_b, &[], id)?;
+        layer.update(point_b, [], id)?;
         let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
             "SELECT minx, maxx, miny, maxy FROM rtree_rtree_points_geom WHERE id = ?1",
             [id],
@@ -669,8 +665,8 @@ mod tests {
 
         let value_a = "a".to_string();
         let value_b = "b".to_string();
-        layer.insert(Point::new(0.0, 0.0), &[&value_a])?;
-        layer.insert(Point::new(1.0, 1.0), &[&value_b])?;
+        layer.insert(Point::new(0.0, 0.0), [Value::from(value_a)])?;
+        layer.insert(Point::new(1.0, 1.0), [Value::from(value_b)])?;
 
         let deleted = layer.truncate()?;
         assert_eq!(deleted, 2);
@@ -709,13 +705,10 @@ mod tests {
         )?;
 
         let only = "only".to_string();
-        let result = layer.insert(Point::new(0.0, 0.0), &[&only]);
+        let result = layer.insert(Point::new(0.0, 0.0), [Value::from(only)]);
         match result {
-            Err(crate::error::GpkgError::InvalidPropertyCount { expected, got }) => {
-                assert_eq!(expected, 2);
-                assert_eq!(got, 1);
-            }
-            _ => panic!("expected InvalidPropertyCount error"),
+            Err(crate::GpkgError::Sql(rusqlite::Error::InvalidParameterCount(_, _))) => {}
+            e => panic!("expected InvalidParameterCount error: {e:?}"),
         }
 
         Ok(())
