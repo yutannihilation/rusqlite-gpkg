@@ -117,5 +117,6 @@ pub use sql_functions::register_spatial_functions;
 pub use types::{ColumnSpec, ColumnType, Value};
 
 // Re-export types used in public fields to keep the public API stable.
+pub use rusqlite::ToSql; // TODO: this sould not be needed, but we cannot handle &[Value]
 pub use rusqlite::params;
 pub use wkb::reader::{Dimension, GeometryType};
