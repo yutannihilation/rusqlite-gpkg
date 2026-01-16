@@ -113,6 +113,16 @@ impl From<f64> for Value {
     }
 }
 
+#[macro_export]
+macro_rules! params {
+    () => {
+        &[]
+    };
+    ($($value:expr),+ $(,)?) => {
+        &[$($crate::Value::from($value)),+]
+    };
+}
+
 #[inline]
 fn value_to_sql_output(value: &Value) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
     use rusqlite::types::{ToSqlOutput, ValueRef};

@@ -146,13 +146,12 @@ impl<'a> GpkgLayer<'a> {
     /// Example:
     /// ```no_run
     /// use geo_types::Point;
-    /// use rusqlite_gpkg::{Gpkg, Value};
+    /// use rusqlite_gpkg::{Gpkg, params};
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
     /// let layer = gpkg.get_layer("points")?;
     ///
-    /// let properties = vec![Value::Text("alpha".to_string()), Value::Integer(1)];
-    /// layer.insert(Point::new(1.0, 2.0), &properties)?;
+    /// layer.insert(Point::new(1.0, 2.0), params!["alpha", 1])?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn insert<'p, G, P>(&self, geometry: G, properties: P) -> Result<()>
@@ -190,12 +189,11 @@ impl<'a> GpkgLayer<'a> {
     /// Example:
     /// ```no_run
     /// use geo_types::Point;
-    /// use rusqlite_gpkg::{Gpkg, Value};
+    /// use rusqlite_gpkg::{Gpkg, params};
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
     /// let layer = gpkg.get_layer("points")?;
-    /// let properties = vec![Value::from("beta"), Value::from(false)];
-    /// layer.update(Point::new(3.0, 4.0), &properties, 1)?;
+    /// layer.update(Point::new(3.0, 4.0), params!["beta", false], 1)?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn update<'p, G, P>(&self, geometry: G, properties: P, id: i64) -> Result<()>
@@ -312,6 +310,7 @@ mod tests {
     use crate::Value;
     use crate::conversions::geometry_type_to_str;
     use crate::gpkg::Gpkg;
+    use crate::params;
     use crate::types::{ColumnSpec, ColumnType};
     use geo_traits::GeometryTrait;
     use geo_types::{
@@ -487,15 +486,13 @@ mod tests {
         let point_a = Point::new(1.0, 2.0);
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
-        let properties_a = [Value::from(name_a), Value::from(value_a)];
-        layer.insert(point_a, properties_a.iter())?;
+        layer.insert(point_a, params![name_a, value_a])?;
         let id = layer.conn.connection().last_insert_rowid();
 
         let point_b = Point::new(4.0, 5.0);
         let name_b = "beta".to_string();
         let value_b = 9_i64;
-        let properties_b = [Value::from(name_b), Value::from(value_b)];
-        layer.update(point_b, properties_b.iter(), id)?;
+        layer.update(point_b, params![name_b, value_b], id)?;
 
         let (geom_blob, name, value): (Vec<u8>, String, i64) = layer.conn.connection().query_row(
             "SELECT geom, name, value FROM points WHERE fid = ?1",
@@ -698,10 +695,8 @@ mod tests {
 
         let value_a = "a".to_string();
         let value_b = "b".to_string();
-        let properties_a = [Value::from(value_a)];
-        layer.insert(Point::new(0.0, 0.0), properties_a.iter())?;
-        let properties_b = [Value::from(value_b)];
-        layer.insert(Point::new(1.0, 1.0), properties_b.iter())?;
+        layer.insert(Point::new(0.0, 0.0), params![value_a])?;
+        layer.insert(Point::new(1.0, 1.0), params![value_b])?;
 
         let deleted = layer.truncate()?;
         assert_eq!(deleted, 2);
@@ -740,8 +735,7 @@ mod tests {
         )?;
 
         let only = "only".to_string();
-        let properties = [Value::from(only)];
-        let result = layer.insert(Point::new(0.0, 0.0), properties.iter());
+        let result = layer.insert(Point::new(0.0, 0.0), params![only]);
         match result {
             Err(crate::GpkgError::Sql(rusqlite::Error::InvalidParameterCount(_, _))) => {}
             e => panic!("expected InvalidParameterCount error: {e:?}"),

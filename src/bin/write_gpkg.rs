@@ -1,4 +1,4 @@
-use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, Value};
+use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, params};
 use std::f64::consts::PI;
 use std::str::FromStr;
 use wkt::Wkt;
@@ -59,15 +59,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let tokyo_region = "Tokyo".to_string();
     let tokyo_points = 5_i64;
     let tokyo_note = "Star polygon around Tokyo".to_string();
-    let tokyo_properties = [
-        Value::from(tokyo_name),
-        Value::from(tokyo_region),
-        Value::from(tokyo_center.1),
-        Value::from(tokyo_center.0),
-        Value::from(tokyo_points),
-        Value::from(tokyo_note),
-    ];
-    layer.insert(tokyo_star, tokyo_properties.iter())?;
+    layer.insert(
+        tokyo_star,
+        params![
+            tokyo_name,
+            tokyo_region,
+            tokyo_center.1,
+            tokyo_center.0,
+            tokyo_points,
+            tokyo_note
+        ],
+    )?;
 
     let hokkaido_center = (141.3468, 43.0642);
     let hokkaido_star = star_polygon_wkt(hokkaido_center.0, hokkaido_center.1, 2.2, 0.9, 5)?;
@@ -75,15 +77,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let hokkaido_region = "Hokkaido".to_string();
     let hokkaido_points = 5_i64;
     let hokkaido_note = "Star polygon around Hokkaido".to_string();
-    let hokkaido_properties = [
-        Value::from(hokkaido_name),
-        Value::from(hokkaido_region),
-        Value::from(hokkaido_center.1),
-        Value::from(hokkaido_center.0),
-        Value::from(hokkaido_points),
-        Value::from(hokkaido_note),
-    ];
-    layer.insert(hokkaido_star, hokkaido_properties.iter())?;
+    layer.insert(
+        hokkaido_star,
+        params![
+            hokkaido_name,
+            hokkaido_region,
+            hokkaido_center.1,
+            hokkaido_center.0,
+            hokkaido_points,
+            hokkaido_note
+        ],
+    )?;
 
     Ok(())
 }

@@ -222,7 +222,7 @@ impl Gpkg {
     /// Example:
     /// ```no_run
     /// use geo_types::Point;
-    /// use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, Value};
+    /// use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, params};
     ///
     /// let gpkg = Gpkg::open_in_memory()?;
     /// let columns = vec![ColumnSpec {
@@ -237,8 +237,7 @@ impl Gpkg {
     ///     4326,
     ///     &columns,
     /// )?;
-    /// let properties = vec![Value::from("alpha")];
-    /// layer.insert(Point::new(1.0, 2.0), properties.iter())?;
+    /// layer.insert(Point::new(1.0, 2.0), params!["alpha"])?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn create_layer<'a>(
@@ -502,8 +501,8 @@ impl Gpkg {
 #[cfg(test)]
 mod tests {
     use super::Gpkg;
-    use crate::Value;
     use crate::error::GpkgError;
+    use crate::params;
     use crate::types::{ColumnSpec, ColumnType};
     use geo_types::Point;
     use std::fs;
@@ -568,12 +567,10 @@ mod tests {
 
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
-        let properties_a = [Value::from(name_a), Value::from(value_a)];
-        layer.insert(Point::new(1.0, 2.0), properties_a.iter())?;
+        layer.insert(Point::new(1.0, 2.0), params![name_a, value_a])?;
         let name_b = "beta".to_string();
         let value_b = 9_i64;
-        let properties_b = [Value::from(name_b), Value::from(value_b)];
-        layer.insert(Point::new(-3.0, 4.5), properties_b.iter())?;
+        layer.insert(Point::new(-3.0, 4.5), params![name_b, value_b])?;
 
         let dump = gpkg.to_bytes()?;
         let mut path = std::env::temp_dir();
@@ -654,12 +651,10 @@ mod tests {
 
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
-        let properties_a = [Value::from(name_a), Value::from(value_a)];
-        layer.insert(Point::new(1.0, 2.0), properties_a.iter())?;
+        layer.insert(Point::new(1.0, 2.0), params![name_a, value_a])?;
         let name_b = "beta".to_string();
         let value_b = 9_i64;
-        let properties_b = [Value::from(name_b), Value::from(value_b)];
-        layer.insert(Point::new(-3.0, 4.5), properties_b.iter())?;
+        layer.insert(Point::new(-3.0, 4.5), params![name_b, value_b])?;
 
         let dump = gpkg.to_bytes()?;
 
