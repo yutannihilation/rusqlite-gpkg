@@ -21,7 +21,7 @@ impl GpkgFeature {
     /// use rusqlite_gpkg::Gpkg;
     ///
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-    /// let layer = gpkg.open_layer("points")?;
+    /// let layer = gpkg.get_layer("points")?;
     /// let feature = layer.features()?.next().expect("feature");
     /// let _id = feature.id();
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
@@ -37,7 +37,7 @@ impl GpkgFeature {
     /// use rusqlite_gpkg::Gpkg;
     ///
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-    /// let layer = gpkg.open_layer("points")?;
+    /// let layer = gpkg.get_layer("points")?;
     /// let feature = layer.features()?.next().expect("feature");
     /// let _geom = feature.geometry()?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
@@ -60,7 +60,7 @@ impl GpkgFeature {
     /// use rusqlite_gpkg::Gpkg;
     ///
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-    /// let layer = gpkg.open_layer("points")?;
+    /// let layer = gpkg.get_layer("points")?;
     /// let feature = layer.features()?.next().expect("feature");
     /// let value: String = feature
     ///     .property("name")

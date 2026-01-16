@@ -182,10 +182,10 @@ impl Gpkg {
     /// use rusqlite_gpkg::Gpkg;
     ///
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-    /// let layer = gpkg.open_layer("points")?;
+    /// let layer = gpkg.get_layer("points")?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn open_layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
+    pub fn get_layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
         let column_specs = self.get_column_specs(layer_name, &geometry_column)?;
@@ -229,7 +229,7 @@ impl Gpkg {
     ///     name: "name".to_string(),
     ///     column_type: ColumnType::Varchar,
     /// }];
-    /// let layer = gpkg.new_layer(
+    /// let layer = gpkg.create_layer(
     ///     "points",
     ///     "geom".to_string(),
     ///     wkb::reader::GeometryType::Point,
@@ -240,7 +240,7 @@ impl Gpkg {
     /// layer.insert(Point::new(1.0, 2.0), &[&"alpha"])?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn new_layer<'a>(
+    pub fn create_layer<'a>(
         &'a self,
         layer_name: &str,
         geometry_column: String,
@@ -509,11 +509,11 @@ mod tests {
     use wkb::reader::{Dimension, GeometryType};
 
     #[test]
-    fn new_layer_requires_existing_srs() {
+    fn create_layer_requires_existing_srs() {
         let gpkg = Gpkg::open_in_memory().expect("new gpkg");
         let columns: Vec<ColumnSpec> = Vec::new();
         let err = gpkg
-            .new_layer(
+            .create_layer(
                 "missing_srs",
                 "geom".to_string(),
                 wkb::reader::GeometryType::Point,
@@ -555,7 +555,7 @@ mod tests {
                 column_type: ColumnType::Integer,
             },
         ];
-        let layer = gpkg.new_layer(
+        let layer = gpkg.create_layer(
             "points",
             "geom".to_string(),
             GeometryType::Point,
@@ -584,7 +584,7 @@ mod tests {
         let layers = reopened.list_layers()?;
         assert_eq!(layers, vec!["points".to_string()]);
 
-        let reopened_layer = reopened.open_layer("points")?;
+        let reopened_layer = reopened.get_layer("points")?;
         let features = reopened_layer.features()?;
         let collected: Vec<_> = features.collect();
         assert_eq!(collected.len(), 2);
@@ -639,7 +639,7 @@ mod tests {
                 column_type: ColumnType::Integer,
             },
         ];
-        let layer = gpkg.new_layer(
+        let layer = gpkg.create_layer(
             "points",
             "geom".to_string(),
             GeometryType::Point,
@@ -662,7 +662,7 @@ mod tests {
         let layers = restored.list_layers()?;
         assert_eq!(layers, vec!["points".to_string()]);
 
-        let restored_layer = restored.open_layer("points")?;
+        let restored_layer = restored.get_layer("points")?;
         let features = restored_layer.features()?;
         let collected: Vec<_> = features.collect();
         assert_eq!(collected.len(), 2);

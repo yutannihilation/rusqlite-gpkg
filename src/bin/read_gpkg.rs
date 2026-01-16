@@ -16,7 +16,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let layers = gpkg.list_layers()?;
 
     for layer_name in layers {
-        let layer = gpkg.open_layer(&layer_name)?;
+        let layer = gpkg.get_layer(&layer_name)?;
         println!("layer: {layer_name}");
 
         for (row_idx, feature) in layer.features()?.enumerate() {

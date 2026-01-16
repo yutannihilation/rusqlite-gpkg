@@ -31,22 +31,22 @@ operations. There are multiple ways to open it:
 From a `Gpkg`, you can discover or create layers:
 
 - `list_layers()` returns the layer/table names.
-- `open_layer(name)` loads a `GpkgLayer` by name.
-- `new_layer(...)` creates a new feature layer and returns a `GpkgLayer`.
+- `get_layer(name)` loads a `GpkgLayer` by name.
+- `create_layer(...)` creates a new feature layer and returns a `GpkgLayer`.
 
 ```rs
 use rusqlite_gpkg::Gpkg;
 
 let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
 let layers = gpkg.list_layers()?;
-let layer = gpkg.open_layer(&layers[0])?;
+let layer = gpkg.get_layer(&layers[0])?;
 # Ok::<(), rusqlite_gpkg::GpkgError>(())
 ```
 
 ### GpkgLayer
 
 `GpkgLayer` represents a single feature table. You typically get it from
-`Gpkg::open_layer` (for existing data) or `Gpkg::new_layer` (for new data).
+`Gpkg::get_layer` (for existing data) or `Gpkg::create_layer` (for new data).
 It exposes the layer schema (geometry column name, property columns) and
 methods to iterate, insert, or update features. Insertions and updates accept
 any geometry that implements `geo_traits::GeometryTrait<T = f64>`, including
@@ -61,7 +61,7 @@ let columns = vec![
     ColumnSpec { name: "name".to_string(), column_type: ColumnType::Varchar },
     ColumnSpec { name: "value".to_string(), column_type: ColumnType::Integer },
 ];
-let layer = gpkg.new_layer(
+let layer = gpkg.create_layer(
     "points",
     "geom".to_string(),
     wkb::reader::GeometryType::Point,
@@ -87,7 +87,7 @@ use rusqlite_gpkg::Gpkg;
 use wkt::to_wkt::write_geometry;
 
 let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-let layer = gpkg.open_layer("points")?;
+let layer = gpkg.get_layer("points")?;
 let feature = layer.features()?.next().expect("feature");
 let id = feature.id();
 let geom = feature.geometry()?;
@@ -111,7 +111,7 @@ returned by `GpkgFeature::property` as `Option<Value>`. Convert using
 use rusqlite_gpkg::Gpkg;
 
 let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-let layer = gpkg.open_layer("points")?;
+let layer = gpkg.get_layer("points")?;
 let feature = layer.features()?.next().expect("feature");
 
 let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
@@ -138,7 +138,7 @@ use wkt::to_wkt::write_geometry;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let gpkg = Gpkg::open("data.gpkg")?;
     for layer_name in gpkg.list_layers()? {
-        let layer = gpkg.open_layer(&layer_name)?;
+        let layer = gpkg.get_layer(&layer_name)?;
         for feature in layer.features()? {
             let geom = feature.geometry()?;
 
@@ -177,7 +177,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     ];
 
-    let layer = gpkg.new_layer(
+    let layer = gpkg.create_layer(
         "points",
         "geom".to_string(),
         wkb::reader::GeometryType::Point,

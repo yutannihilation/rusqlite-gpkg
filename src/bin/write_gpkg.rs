@@ -45,7 +45,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         },
     ];
 
-    let layer = gpkg.new_layer(
+    let layer = gpkg.create_layer(
         "stars",
         "geom".to_string(),
         wkb::reader::GeometryType::Polygon,

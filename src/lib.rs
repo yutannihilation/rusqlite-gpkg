@@ -13,8 +13,8 @@
 //! - `Gpkg::open(path)`: open a new or existing file for read/write.
 //! - `Gpkg::open_in_memory()`: create a transient in-memory GeoPackage.
 //!
-//! You access a `GpkgLayer` via `Gpkg::open_layer(name)` for existing layers
-//! or `Gpkg::new_layer(...)` for a new layer.
+//! You access a `GpkgLayer` via `Gpkg::get_layer(name)` for existing layers
+//! or `Gpkg::create_layer(...)` for a new layer.
 //!
 //! `GpkgLayer::insert` and `GpkgLayer::update` accept any geometry that implements
 //! `geo_traits::GeometryTrait<T = f64>` (for example `geo_types::Point` or `wkt::Wkt`).
@@ -26,7 +26,7 @@
 //!
 //! let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
 //! let layers = gpkg.list_layers()?;
-//! let layer = gpkg.open_layer(&layers[0])?;
+//! let layer = gpkg.get_layer(&layers[0])?;
 //! let feature = layer.features()?.next().expect("feature");
 //! let _id = feature.id();
 //! let _geom = feature.geometry()?;
@@ -46,7 +46,7 @@
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let gpkg = Gpkg::open("data.gpkg")?;
 //!     for layer_name in gpkg.list_layers()? {
-//!         let layer = gpkg.open_layer(&layer_name)?;
+//!         let layer = gpkg.get_layer(&layer_name)?;
 //!         for feature in layer.features()? {
 //!             let geom: wkb::reader::Wkb<'_> = feature.geometry()?;
 //!
@@ -85,7 +85,7 @@
 //!         },
 //!     ];
 //!
-//!     let layer = gpkg.new_layer(
+//!     let layer = gpkg.create_layer(
 //!         "points",
 //!         "geom".to_string(),
 //!         wkb::reader::GeometryType::Point,

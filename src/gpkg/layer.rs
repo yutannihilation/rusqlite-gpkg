@@ -39,7 +39,7 @@ impl<'a> GpkgLayer<'a> {
     /// use rusqlite_gpkg::Gpkg;
     ///
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-    /// let layer = gpkg.open_layer("points")?;
+    /// let layer = gpkg.get_layer("points")?;
     /// for feature in layer.features()? {
     ///     let _id = feature.id();
     ///     let _geom = feature.geometry()?;
@@ -131,7 +131,7 @@ impl<'a> GpkgLayer<'a> {
     /// use rusqlite_gpkg::Gpkg;
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
-    /// let layer = gpkg.open_layer("points")?;
+    /// let layer = gpkg.get_layer("points")?;
     /// layer.truncate()?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
@@ -149,7 +149,7 @@ impl<'a> GpkgLayer<'a> {
     /// use rusqlite_gpkg::Gpkg;
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
-    /// let layer = gpkg.open_layer("points")?;
+    /// let layer = gpkg.get_layer("points")?;
     /// layer.insert(Point::new(1.0, 2.0), &[&"alpha", &true])?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
@@ -175,7 +175,7 @@ impl<'a> GpkgLayer<'a> {
     /// use rusqlite_gpkg::Gpkg;
     ///
     /// let gpkg = Gpkg::open("data/example.gpkg")?;
-    /// let layer = gpkg.open_layer("points")?;
+    /// let layer = gpkg.get_layer("points")?;
     /// layer.update(Point::new(3.0, 4.0), &[&"beta", &false], 1)?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
@@ -317,7 +317,7 @@ mod tests {
         geometry: G,
     ) -> Result<()> {
         let columns: Vec<ColumnSpec> = Vec::new();
-        let layer = gpkg.new_layer(
+        let layer = gpkg.create_layer(
             layer_name,
             "geom".to_string(),
             geometry_type,
@@ -356,9 +356,9 @@ mod tests {
         layers.sort();
         assert_eq!(layers, vec!["lines", "points", "polygons"]);
 
-        let points = gpkg.open_layer("points")?;
-        let lines = gpkg.open_layer("lines")?;
-        let polygons = gpkg.open_layer("polygons")?;
+        let points = gpkg.get_layer("points")?;
+        let lines = gpkg.get_layer("lines")?;
+        let polygons = gpkg.get_layer("polygons")?;
 
         assert_eq!(points.features()?.count(), 5);
         assert_eq!(lines.features()?.count(), 3);
@@ -370,7 +370,7 @@ mod tests {
     #[test]
     fn reads_geometry_and_properties_from_points() -> Result<()> {
         let gpkg = Gpkg::open_read_only(generated_gpkg_path())?;
-        let layer = gpkg.open_layer("points")?;
+        let layer = gpkg.get_layer("points")?;
         let mut iter = layer.features()?;
         let feature = iter.next().expect("first feature");
 
@@ -407,7 +407,7 @@ mod tests {
             },
         ];
 
-        gpkg.new_layer(
+        gpkg.create_layer(
             "points",
             "geom".to_string(),
             GeometryType::Point,
@@ -448,7 +448,7 @@ mod tests {
             },
         ];
 
-        let layer = gpkg.new_layer(
+        let layer = gpkg.create_layer(
             "points",
             "geom".to_string(),
             GeometryType::Point,
@@ -604,7 +604,7 @@ mod tests {
     fn rtree_updates_on_insert_update_delete() -> Result<()> {
         let gpkg = Gpkg::open_in_memory()?;
         let columns: Vec<ColumnSpec> = Vec::new();
-        let layer = gpkg.new_layer(
+        let layer = gpkg.create_layer(
             "rtree_points",
             "geom".to_string(),
             GeometryType::Point,
@@ -658,7 +658,7 @@ mod tests {
             column_type: ColumnType::Varchar,
         }];
 
-        let layer = gpkg.new_layer(
+        let layer = gpkg.create_layer(
             "points",
             "geom".to_string(),
             GeometryType::Point,
@@ -699,7 +699,7 @@ mod tests {
             },
         ];
 
-        let layer = gpkg.new_layer(
+        let layer = gpkg.create_layer(
             "points",
             "geom".to_string(),
             GeometryType::Point,
