@@ -1,3 +1,4 @@
+use rusqlite::params;
 use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg};
 use std::f64::consts::PI;
 use std::str::FromStr;
@@ -15,7 +16,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .ok_or("Usage: write_gpkg <output.gpkg>")?;
 
-    let gpkg = Gpkg::new(path)?;
+    let gpkg = Gpkg::open(path)?;
 
     let columns = vec![
         ColumnSpec {
@@ -61,13 +62,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let tokyo_note = "Star polygon around Tokyo".to_string();
     layer.insert(
         tokyo_star,
-        &[
-            &tokyo_name,
-            &tokyo_region,
-            &tokyo_center.1,
-            &tokyo_center.0,
-            &tokyo_points,
-            &tokyo_note,
+        params![
+            tokyo_name,
+            tokyo_region,
+            tokyo_center.1,
+            tokyo_center.0,
+            tokyo_points,
+            tokyo_note,
         ],
     )?;
 
@@ -79,13 +80,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let hokkaido_note = "Star polygon around Hokkaido".to_string();
     layer.insert(
         hokkaido_star,
-        &[
-            &hokkaido_name,
-            &hokkaido_region,
-            &hokkaido_center.1,
-            &hokkaido_center.0,
-            &hokkaido_points,
-            &hokkaido_note,
+        params![
+            hokkaido_name,
+            hokkaido_region,
+            hokkaido_center.1,
+            hokkaido_center.0,
+            hokkaido_points,
+            hokkaido_note,
         ],
     )?;
 
