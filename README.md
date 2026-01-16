@@ -5,7 +5,7 @@
 [![](https://img.shields.io/docsrs/rusqlite-gpkg.svg?style=flat-square&logo=docsdotrs)](https://docs.rs/rusqlite-gpkg/latest/)
 [![](<https://img.shields.io/badge/%C2%AF%5C_(%E3%83%84)_%2F%C2%AF-green?style=flat-square&logo=docsdotrs&label=docs%20(dev)&labelColor=grey>)](https://yutannihilation.github.io/rusqlite-gpkg/rusqlite_gpkg/)
 
-Small GeoPackage reader/writer built on top of [rusqlite](https://crates.io/crates/rusqlite).
+GeoPackage reader/writer built on top of [rusqlite](https://crates.io/crates/rusqlite).
 
 ## Overview
 

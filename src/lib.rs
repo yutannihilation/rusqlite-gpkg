@@ -1,4 +1,4 @@
-//! Read and write GeoPackage data with a small, rusqlite-backed API.
+//! GeoPackage reader/writer built on top of rusqlite.
 //!
 //! ## Overview
 //!

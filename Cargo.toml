@@ -1,7 +1,11 @@
 [package]
 name = "rusqlite-gpkg"
-version = "0.1.0"
+description = "GeoPackage reader/writer built on top of rusqlite"
+version = "0.0.1"
 edition = "2024"
+authors = ["Hiroaki Yutani"]
+license = "MIT"
+repository = "https://github.com/yutannihilation/rusqlite-gpkg/"
 
 [dependencies]
 geo-traits = { version = "0.3.0", default-features = false }
