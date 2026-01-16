@@ -23,7 +23,29 @@ pub struct Gpkg {
     read_only: bool,
 }
 
+#[cfg(not(target_family = "wasm"))]
+fn rusqlite_open_path<P: AsRef<Path>>(
+    path: P,
+    flags: rusqlite::OpenFlags,
+) -> rusqlite::Result<rusqlite::Connection> {
+    rusqlite::Connection::open_with_flags(path, flags)
+}
+
+// Use OPFS. cf. https://github.com/Spxg/sqlite-wasm-rs/issues/24
+#[cfg(target_family = "wasm")]
+fn rusqlite_open_path<P: AsRef<Path>>(
+    path: P,
+    flags: rusqlite::OpenFlags,
+) -> rusqlite::Result<rusqlite::Connection> {
+    rusqlite::Connection::open_with_flags_and_vfs(path, flags, "opfs-sahpool")
+}
+
 impl Gpkg {
+    fn open_inner(conn: rusqlite::Connection, read_only: bool) -> Result<Self> {
+        register_spatial_functions(&conn)?;
+        Ok(Self { conn, read_only })
+    }
+
     /// Open a GeoPackage in read-only mode.
     ///
     /// Example:
@@ -34,12 +56,8 @@ impl Gpkg {
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let conn = rusqlite::Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        register_spatial_functions(&conn)?;
-        Ok(Self {
-            conn,
-            read_only: true,
-        })
+        let conn = rusqlite_open_path(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        Self::open_inner(conn, true)
     }
 
     /// Open a new or existing GeoPackage in read-write mode.
@@ -55,18 +73,14 @@ impl Gpkg {
         let path = path.as_ref();
         let is_existing = path.exists();
 
-        let conn = rusqlite::Connection::open(path)?;
+        let conn = rusqlite_open_path(path, rusqlite::OpenFlags::default())?;
 
         // In the case of new file, initialize it
         if !is_existing {
             initialize_gpkg(&conn)?;
         }
 
-        register_spatial_functions(&conn)?;
-        Ok(Self {
-            conn,
-            read_only: false,
-        })
+        Self::open_inner(conn, false)
     }
 
     /// Create a new GeoPackage in memory.
@@ -82,12 +96,8 @@ impl Gpkg {
         let conn = rusqlite::Connection::open_in_memory()?;
 
         initialize_gpkg(&conn)?;
-        register_spatial_functions(&conn)?;
 
-        Ok(Self {
-            conn,
-            read_only: false,
-        })
+        Self::open_inner(conn, false)
     }
 
     /// Expert-only: register a spatial reference system in gpkg_spatial_ref_sys.
