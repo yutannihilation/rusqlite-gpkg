@@ -53,18 +53,6 @@ pub enum Value {
     Geometry(Vec<u8>), // we want to use Wkb struct here, but it requires a lifetime
 }
 
-impl From<f64> for Value {
-    fn from(value: f64) -> Self {
-        Value::Real(value)
-    }
-}
-
-impl From<i64> for Value {
-    fn from(value: i64) -> Self {
-        Value::Integer(value)
-    }
-}
-
 impl From<&str> for Value {
     fn from(value: &str) -> Self {
         Value::Text(value.to_string())
@@ -80,6 +68,48 @@ impl From<String> for Value {
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Value::Integer(if value { 1 } else { 0 })
+    }
+}
+
+macro_rules! impl_from_int {
+    ($($t:ty),+ $(,)?) => {
+        $(
+            impl From<$t> for Value {
+                #[inline]
+                fn from(value: $t) -> Self {
+                    Value::Integer(value as i64)
+                }
+            }
+        )+
+    };
+}
+
+macro_rules! impl_from_uint {
+    ($($t:ty),+ $(,)?) => {
+        $(
+            impl From<$t> for Value {
+                #[inline]
+                fn from(value: $t) -> Self {
+                    Value::Integer(value as i64)
+                }
+            }
+        )+
+    };
+}
+
+impl_from_int!(i8, i16, i32, i64, isize);
+impl_from_uint!(u8, u16, u32, u64, usize);
+
+impl From<f32> for Value {
+    #[inline]
+    fn from(value: f32) -> Self {
+        Value::Real(value as f64)
+    }
+}
+
+impl From<f64> for Value {
+    fn from(value: f64) -> Self {
+        Value::Real(value)
     }
 }
 
