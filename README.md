@@ -25,9 +25,8 @@ and which property columns are present.
 operations. There are multiple ways to open it:
 
 - `Gpkg::open_read_only(path)`: open an existing file without write access.
-- `Gpkg::open(path)`: open an existing file for read/write (fails if missing).
-- `Gpkg::new(path)`: create a new GeoPackage file (fails if the file exists).
-- `Gpkg::new_in_memory()`: create a transient in-memory GeoPackage.
+- `Gpkg::open(path)`: open a new or existing file for read/write.
+- `Gpkg::open_in_memory()`: create a transient in-memory GeoPackage.
 
 From a `Gpkg`, you can discover or create layers:
 

@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn creates_layer_metadata() -> Result<()> {
-        let gpkg = Gpkg::new_in_memory()?;
+        let gpkg = Gpkg::open_in_memory()?;
         let columns = vec![
             ColumnSpec {
                 name: "name".to_string(),
@@ -436,7 +436,7 @@ mod tests {
 
     #[test]
     fn inserts_and_updates_by_primary_key() -> Result<()> {
-        let gpkg = Gpkg::new_in_memory()?;
+        let gpkg = Gpkg::open_in_memory()?;
         let columns = vec![
             ColumnSpec {
                 name: "name".to_string(),
@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn roundtrips_all_geometry_types() -> Result<()> {
-        let gpkg = Gpkg::new_in_memory()?;
+        let gpkg = Gpkg::open_in_memory()?;
 
         let line = LineString::from(vec![(0.0, 0.0), (1.5, 1.0), (2.0, 0.5)]);
         let line_b = LineString::from(vec![(-1.0, -1.0), (-2.0, -3.0)]);
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn roundtrips_z_and_m_dimensions() -> Result<()> {
-        let gpkg = Gpkg::new_in_memory()?;
+        let gpkg = Gpkg::open_in_memory()?;
 
         let point_z = Wkt::from_str("POINT Z (1 2 3)")
             .map_err(|err| crate::error::GpkgError::Message(err.to_string()))?;
@@ -602,7 +602,7 @@ mod tests {
 
     #[test]
     fn rtree_updates_on_insert_update_delete() -> Result<()> {
-        let gpkg = Gpkg::new_in_memory()?;
+        let gpkg = Gpkg::open_in_memory()?;
         let columns: Vec<ColumnSpec> = Vec::new();
         let layer = gpkg.new_layer(
             "rtree_points",
@@ -652,7 +652,7 @@ mod tests {
 
     #[test]
     fn truncates_rows() -> Result<()> {
-        let gpkg = Gpkg::new_in_memory()?;
+        let gpkg = Gpkg::open_in_memory()?;
         let columns = vec![ColumnSpec {
             name: "name".to_string(),
             column_type: ColumnType::Varchar,
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn rejects_invalid_property_count() -> Result<()> {
-        let gpkg = Gpkg::new_in_memory()?;
+        let gpkg = Gpkg::open_in_memory()?;
         let columns = vec![
             ColumnSpec {
                 name: "name".to_string(),

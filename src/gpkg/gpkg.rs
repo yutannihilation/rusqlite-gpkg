@@ -42,7 +42,7 @@ impl Gpkg {
         })
     }
 
-    /// Open a GeoPackage in read-write mode.
+    /// Open a new or existing GeoPackage in read-write mode.
     ///
     /// Example:
     /// ```no_run
@@ -53,44 +53,16 @@ impl Gpkg {
     /// ```
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        if !path.exists() {
-            return Err(GpkgError::Message(format!(
-                "GeoPackage file does not exist: {}",
-                path.display()
-            )));
-        }
-
-        let conn = rusqlite::Connection::open(path)?;
-        register_spatial_functions(&conn)?;
-        Ok(Self {
-            conn,
-            read_only: false,
-        })
-    }
-
-    /// Create a new GeoPackage.
-    ///
-    /// Example:
-    /// ```no_run
-    /// use rusqlite_gpkg::Gpkg;
-    ///
-    /// let gpkg = Gpkg::new("data/new.gpkg")?;
-    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
-    /// ```
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let path = path.as_ref();
-        if path.exists() {
-            return Err(GpkgError::Message(format!(
-                "GeoPackage file already exists: {}",
-                path.display()
-            )));
-        }
+        let is_existing = path.exists();
 
         let conn = rusqlite::Connection::open(path)?;
 
-        initialize_gpkg(&conn)?;
-        register_spatial_functions(&conn)?;
+        // In the case of new file, initialize it
+        if !is_existing {
+            initialize_gpkg(&conn)?;
+        }
 
+        register_spatial_functions(&conn)?;
         Ok(Self {
             conn,
             read_only: false,
@@ -103,10 +75,10 @@ impl Gpkg {
     /// ```no_run
     /// use rusqlite_gpkg::Gpkg;
     ///
-    /// let gpkg = Gpkg::new_in_memory()?;
+    /// let gpkg = Gpkg::open_in_memory()?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn new_in_memory() -> Result<Self> {
+    pub fn open_in_memory() -> Result<Self> {
         let conn = rusqlite::Connection::open_in_memory()?;
 
         initialize_gpkg(&conn)?;
@@ -135,7 +107,7 @@ impl Gpkg {
     /// Example: register EPSG:3857 (Web Mercator / Pseudo-Mercator).
     /// ```no_run
     /// # use rusqlite_gpkg::Gpkg;
-    /// let gpkg = Gpkg::new_in_memory().expect("new gpkg");
+    /// let gpkg = Gpkg::open_in_memory().expect("new gpkg");
     /// let definition = r#"PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],EXTENSION["PROJ4","+proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]"#;
     /// gpkg.register_srs(
     ///     "WGS 84 / Pseudo-Mercator",
@@ -242,7 +214,7 @@ impl Gpkg {
     /// use geo_types::Point;
     /// use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg};
     ///
-    /// let gpkg = Gpkg::new_in_memory()?;
+    /// let gpkg = Gpkg::open_in_memory()?;
     /// let columns = vec![ColumnSpec {
     ///     name: "name".to_string(),
     ///     column_type: ColumnType::Varchar,
@@ -376,7 +348,7 @@ impl Gpkg {
     /// ```no_run
     /// use rusqlite_gpkg::Gpkg;
     ///
-    /// let gpkg = Gpkg::new_in_memory()?;
+    /// let gpkg = Gpkg::open_in_memory()?;
     /// let bytes = gpkg.to_bytes()?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
@@ -395,7 +367,7 @@ impl Gpkg {
     /// ```no_run
     /// use rusqlite_gpkg::Gpkg;
     ///
-    /// let gpkg = Gpkg::new_in_memory()?;
+    /// let gpkg = Gpkg::open_in_memory()?;
     /// let bytes = gpkg.to_bytes()?;
     /// let restored = Gpkg::from_bytes(&bytes)?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
@@ -528,7 +500,7 @@ mod tests {
 
     #[test]
     fn new_layer_requires_existing_srs() {
-        let gpkg = Gpkg::new_in_memory().expect("new gpkg");
+        let gpkg = Gpkg::open_in_memory().expect("new gpkg");
         let columns: Vec<ColumnSpec> = Vec::new();
         let err = gpkg
             .new_layer(
@@ -548,49 +520,6 @@ mod tests {
             other => panic!("unexpected error: {other:?}"),
         }
     }
-    #[test]
-    fn new_fails_if_file_exists() {
-        use std::fs;
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let mut path = std::env::temp_dir();
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        path.push(format!("rusqlite_gpkg_exists_{nanos}.gpkg"));
-
-        fs::write(&path, []).expect("create temp file");
-        let err = Gpkg::new(&path).expect_err("existing file should fail");
-        match err {
-            GpkgError::Message(message) => {
-                assert!(message.contains("already exists"));
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
-
-        let _ = fs::remove_file(&path);
-    }
-
-    #[test]
-    fn open_fails_if_missing_file() {
-        use std::time::{SystemTime, UNIX_EPOCH};
-
-        let mut path = std::env::temp_dir();
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        path.push(format!("rusqlite_gpkg_missing_{nanos}.gpkg"));
-
-        let err = Gpkg::open(&path).expect_err("missing file should fail");
-        match err {
-            GpkgError::Message(message) => {
-                assert!(message.contains("does not exist"));
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
-    }
 
     #[test]
     fn delete_layer_rejects_read_only() {
@@ -604,7 +533,7 @@ mod tests {
 
     #[test]
     fn dump_roundtrips_in_memory_gpkg() -> Result<(), GpkgError> {
-        let gpkg = Gpkg::new_in_memory()?;
+        let gpkg = Gpkg::open_in_memory()?;
 
         let columns = vec![
             ColumnSpec {
@@ -688,7 +617,7 @@ mod tests {
 
     #[test]
     fn dump_roundtrips_in_memory_gpkg_from_bytes() -> Result<(), GpkgError> {
-        let gpkg = Gpkg::new_in_memory()?;
+        let gpkg = Gpkg::open_in_memory()?;
 
         let columns = vec![
             ColumnSpec {

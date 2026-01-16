@@ -9,13 +9,12 @@
 //!
 //! `Gpkg` is the entry point and supports several open modes:
 //!
-//! - `Gpkg::open_read_only(path)`: open an existing file read-only.
-//! - `Gpkg::open(path)`: open an existing file read/write (fails if missing).
-//! - `Gpkg::new(path)`: create a new GeoPackage (fails if it exists).
-//! - `Gpkg::new_in_memory()`: create an in-memory GeoPackage.
+//! - `Gpkg::open_read_only(path)`: open an existing file without write access.
+//! - `Gpkg::open(path)`: open a new or existing file for read/write.
+//! - `Gpkg::open_in_memory()`: create a transient in-memory GeoPackage.
 //!
 //! You access a `GpkgLayer` via `Gpkg::open_layer(name)` for existing layers
-//! or `Gpkg::new_layer(...)` for new feature tables.
+//! or `Gpkg::new_layer(...)` for a new layer.
 //!
 //! `GpkgLayer::insert` and `GpkgLayer::update` accept any geometry that implements
 //! `geo_traits::GeometryTrait<T = f64>` (for example `geo_types::Point` or `wkt::Wkt`).
@@ -73,7 +72,7 @@
 //! use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, params};
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let gpkg = Gpkg::new("data.gpkg")?;
+//!     let gpkg = Gpkg::open("data.gpkg")?;
 //!
 //!     let columns = vec![
 //!         ColumnSpec {
