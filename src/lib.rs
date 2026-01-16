@@ -87,7 +87,7 @@
 //!
 //!     let layer = gpkg.create_layer(
 //!         "points",
-//!         "geom".to_string(),
+//!         "geom",
 //!         wkb::reader::GeometryType::Point,
 //!         wkb::reader::Dimension::Xy,
 //!         4326,

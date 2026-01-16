@@ -319,7 +319,7 @@ mod tests {
         let columns: Vec<ColumnSpec> = Vec::new();
         let layer = gpkg.create_layer(
             layer_name,
-            "geom".to_string(),
+            "geom",
             geometry_type,
             geometry_dimension,
             4326,
@@ -409,7 +409,7 @@ mod tests {
 
         gpkg.create_layer(
             "points",
-            "geom".to_string(),
+            "geom",
             GeometryType::Point,
             wkb::reader::Dimension::Xy,
             4326,
@@ -450,7 +450,7 @@ mod tests {
 
         let layer = gpkg.create_layer(
             "points",
-            "geom".to_string(),
+            "geom",
             GeometryType::Point,
             wkb::reader::Dimension::Xy,
             4326,
@@ -606,7 +606,7 @@ mod tests {
         let columns: Vec<ColumnSpec> = Vec::new();
         let layer = gpkg.create_layer(
             "rtree_points",
-            "geom".to_string(),
+            "geom",
             GeometryType::Point,
             wkb::reader::Dimension::Xy,
             4326,
@@ -660,7 +660,7 @@ mod tests {
 
         let layer = gpkg.create_layer(
             "points",
-            "geom".to_string(),
+            "geom",
             GeometryType::Point,
             wkb::reader::Dimension::Xy,
             4326,
@@ -701,7 +701,7 @@ mod tests {
 
         let layer = gpkg.create_layer(
             "points",
-            "geom".to_string(),
+            "geom",
             GeometryType::Point,
             wkb::reader::Dimension::Xy,
             4326,

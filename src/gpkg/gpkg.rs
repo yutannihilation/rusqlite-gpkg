@@ -231,7 +231,7 @@ impl Gpkg {
     /// }];
     /// let layer = gpkg.create_layer(
     ///     "points",
-    ///     "geom".to_string(),
+    ///     "geom",
     ///     wkb::reader::GeometryType::Point,
     ///     wkb::reader::Dimension::Xy,
     ///     4326,
@@ -243,7 +243,7 @@ impl Gpkg {
     pub fn create_layer<'a>(
         &'a self,
         layer_name: &str,
-        geometry_column: String,
+        geometry_column: &str,
         geometry_type: wkb::reader::GeometryType,
         geometry_dimension: wkb::reader::Dimension,
         srs_id: u32,
@@ -312,7 +312,7 @@ impl Gpkg {
         Ok(GpkgLayer {
             conn: self,
             layer_name: layer_name.to_string(),
-            geometry_column,
+            geometry_column: geometry_column.to_string(),
             primary_key_column: "fid".to_string(),
             geometry_type,
             geometry_dimension,
@@ -515,7 +515,7 @@ mod tests {
         let err = gpkg
             .create_layer(
                 "missing_srs",
-                "geom".to_string(),
+                "geom",
                 wkb::reader::GeometryType::Point,
                 wkb::reader::Dimension::Xy,
                 9999,
@@ -557,7 +557,7 @@ mod tests {
         ];
         let layer = gpkg.create_layer(
             "points",
-            "geom".to_string(),
+            "geom",
             GeometryType::Point,
             Dimension::Xy,
             4326,
@@ -641,7 +641,7 @@ mod tests {
         ];
         let layer = gpkg.create_layer(
             "points",
-            "geom".to_string(),
+            "geom",
             GeometryType::Point,
             Dimension::Xy,
             4326,
