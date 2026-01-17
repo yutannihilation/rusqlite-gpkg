@@ -26,7 +26,7 @@ pub struct ColumnSpec {
 
 /// Layer-wide metadata and property column definitions.
 #[derive(Clone, Debug)]
-pub struct LayerMetadata {
+pub struct GpkgLayerMetadata {
     pub primary_key_column: String,
     pub geometry_column: String,
     pub geometry_type: GeometryType,

@@ -9,7 +9,7 @@ use crate::ogc_sql::{
     sql_create_table, sql_drop_table, sql_table_columns,
 };
 use crate::sql_functions::register_spatial_functions;
-use crate::types::{ColumnSpec, LayerMetadata};
+use crate::types::{ColumnSpec, GpkgLayerMetadata};
 use rusqlite::OpenFlags;
 use std::path::Path;
 use std::sync::Arc;
@@ -416,7 +416,7 @@ impl Gpkg {
         geometry_type: wkb::reader::GeometryType,
         geometry_dimension: wkb::reader::Dimension,
         srs_id: u32,
-    ) -> Result<LayerMetadata> {
+    ) -> Result<GpkgLayerMetadata> {
         let query = sql_table_columns(layer_name);
         let mut stmt = self.conn.prepare(&query)?;
 
@@ -470,7 +470,7 @@ impl Gpkg {
             GpkgError::Message(format!("No geometry column found for layer: {layer_name}"))
         })?;
 
-        Ok(LayerMetadata {
+        Ok(GpkgLayerMetadata {
             primary_key_column,
             geometry_column,
             geometry_type,
