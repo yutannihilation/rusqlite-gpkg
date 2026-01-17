@@ -358,6 +358,33 @@ impl TryFrom<Value> for bool {
     }
 }
 
+impl<T> TryFrom<&Value> for Option<T>
+where
+    T: for<'a> TryFrom<&'a Value, Error = GpkgError>,
+{
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Null => Ok(None),
+            _ => Ok(Some(T::try_from(value)?)),
+        }
+    }
+}
+
+impl<T> TryFrom<Value> for Option<T>
+where
+    T: for<'a> TryFrom<&'a Value, Error = GpkgError>,
+{
+    type Error = GpkgError;
+
+    #[inline]
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        (&value).try_into()
+    }
+}
+
 impl TryFrom<Value> for String {
     type Error = GpkgError;
 
@@ -400,5 +427,34 @@ impl<'a> TryFrom<&'a Value> for Wkb<'a> {
             }
             _ => return Err(invalid_type("Wkb", value)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GpkgError, Value};
+
+    #[test]
+    fn option_try_from_value_null_is_none() -> Result<(), GpkgError> {
+        let value = Value::Null;
+        let parsed: Option<i64> = value.try_into()?;
+        assert_eq!(parsed, None);
+        Ok(())
+    }
+
+    #[test]
+    fn option_try_from_value_some_is_some() -> Result<(), GpkgError> {
+        let value = Value::Integer(7);
+        let parsed: Option<i64> = value.try_into()?;
+        assert_eq!(parsed, Some(7));
+        Ok(())
+    }
+
+    #[test]
+    fn option_try_from_ref_handles_integer() -> Result<(), GpkgError> {
+        let value = Value::Integer(42);
+        let parsed: Option<i64> = (&value).try_into()?;
+        assert_eq!(parsed, Some(42));
+        Ok(())
     }
 }
