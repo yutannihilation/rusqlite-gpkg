@@ -10,8 +10,7 @@ use wkb::reader::Wkb;
 
 use super::{Gpkg, GpkgFeature, wkb_to_gpkg_geometry};
 
-mod batch_iterator;
-use batch_iterator::GpkgFeatureBatchIterator;
+use crate::GpkgFeatureBatchIterator;
 
 #[derive(Debug)]
 /// A GeoPackage layer with geometry metadata and column specs.
@@ -309,7 +308,7 @@ impl<'a> GpkgLayer<'a> {
     }
 }
 
-fn row_to_feature(
+pub(crate) fn row_to_feature(
     row: &rusqlite::Row<'_>,
     property_columns: &[ColumnSpec],
     geometry_column: &str,

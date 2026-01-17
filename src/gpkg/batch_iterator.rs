@@ -5,8 +5,6 @@ use rusqlite;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::row_to_feature;
-
 /// Iterator that yields batches of features from a layer.
 ///
 /// Each call to `next()` returns a `Result<Vec<GpkgFeature>>` containing up to
@@ -32,7 +30,7 @@ impl<'a> Iterator for GpkgFeatureBatchIterator<'a> {
         }
 
         let result = self.stmt.query_map([self.offset], |row| {
-            row_to_feature(
+            super::layer::row_to_feature(
                 row,
                 &self.property_columns,
                 &self.geometry_column,
