@@ -147,6 +147,19 @@ let active: bool = feature.property("active").ok_or("missing active")?.try_into(
 # Ok::<(), rusqlite_gpkg::GpkgError>(())
 ```
 
+The conversion above returns an error if the value is `NULL`. If you want to
+handle `NULL`, convert to `Option<T>`; `NULL` becomes `None` and non-null values
+become `Some(T)`:
+
+```rs
+use rusqlite_gpkg::Value;
+
+let value = Value::Null;
+let maybe_i64: Option<i64> = value.try_into()?;
+assert_eq!(maybe_i64, None);
+# Ok::<(), rusqlite_gpkg::GpkgError>(())
+```
+
 ## Disclaimer
 
 Most of the implementation is coded by Codex, while the primary idea is based on my own work in <https://github.com/yutannihilation/duckdb-ext-st-read-multi/pulls>. This probably requires more testing against real data; feedback is welcome!

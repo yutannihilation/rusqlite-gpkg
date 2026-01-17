@@ -65,6 +65,31 @@
 //! }
 //! ```
 //!
+//! `Value` is the crate's owned dynamic value used for feature properties.
+//! Convert using `try_into()` or match directly:
+//!
+//! ```no_run
+//! # use rusqlite_gpkg::Gpkg;
+//! # let gpkg = Gpkg::open("data.gpkg")?;
+//! # let layer = gpkg.get_layer("points")?;
+//! # let feature = layer.features()?.next().expect("feature");
+//! let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
+//! let active: bool = feature.property("active").ok_or("missing active")?.try_into()?;
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
+//! ```
+//!
+//! The conversion above returns an error if the value is `NULL`. If you want to
+//! handle `NULL`, convert to `Option<T>`; `NULL` becomes `None`:
+//!
+//! ```no_run
+//! use rusqlite_gpkg::Value;
+//!
+//! let value = Value::Null;
+//! let maybe_i64: Option<i64> = value.try_into()?;
+//! assert_eq!(maybe_i64, None);
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
+//! ```
+//!
 //! ## Writer
 //!
 //! ```no_run
