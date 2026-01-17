@@ -94,11 +94,29 @@
 //!         &columns,
 //!     )?;
 //!
-//!     
+//!
 //!     layer.insert(
 //!         Point::new(1.0, 2.0),  // geometry: You can pass whatever object that implements GeometryTrait
 //!         params!["alpha", 7_i64], // other properties: pass references to Value
 //!     )?;
+//!
+//! // You might notice the `params!` macro in the example above. It is useful when
+//! // you want to pass a fixed list of values.
+//! //
+//! // When programmatically constructing parameters, build an iterator of `&Value`
+//! // from owned values:
+//! //
+//! // ```no_run
+//! // use rusqlite_gpkg::Value;
+//! //
+//! // fn convert_to_value(input: &str) -> Value {
+//! //     Value::from(input)
+//! // }
+//! //
+//! // let raw = vec!["alpha", "beta"];
+//! // let values: Vec<Value> = raw.iter().map(|v| convert_to_value(v)).collect();
+//! // layer.insert(Point::new(1.0, 2.0), values.iter())?;
+//! // ```
 //!
 //!     Ok(())
 //! }
