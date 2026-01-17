@@ -1,22 +1,30 @@
 use crate::error::GpkgError;
 use wkb::reader::{Dimension, GeometryType, Wkb};
 
+/// Logical column types used by GeoPackage layers and DDL helpers.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
 pub enum ColumnType {
+    /// Boolean value stored as an integer 0/1.
     Boolean,
+    /// UTF-8 text column.
     Varchar,
+    /// Floating point column (SQLite REAL).
     Double,
+    /// Integer column (SQLite INTEGER).
     Integer,
+    /// Geometry column stored as a GeoPackage BLOB.
     Geometry,
 }
 
+/// Column definition used when creating or describing layer properties.
 #[derive(Clone, Debug)]
 pub struct ColumnSpec {
     pub name: String,
     pub column_type: ColumnType,
 }
 
+/// Layer-wide metadata and property column definitions.
 #[derive(Clone, Debug)]
 pub struct LayerMetadata {
     pub primary_key_column: String,
