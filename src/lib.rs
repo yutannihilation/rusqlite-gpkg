@@ -157,16 +157,11 @@
 //! // `params!` accepts `Option<T>` and converts `None` to SQL `NULL`. Because
 //! // `None` has no inherent type, you may need to annotate it:
 //! //
-//! // ```no_run
-//! // # use geo_types::Point;
-//! // # use rusqlite_gpkg::{Gpkg, params};
-//! // # let gpkg = Gpkg::open_in_memory()?;
-//! // # let layer = gpkg.get_layer("points")?;
+//! // ```
 //! // layer.insert(
 //! //     Point::new(0.0, 0.0),
 //! //     params![Some(1.0_f64), Option::<i64>::None],
 //! // )?;
-//! // # Ok::<(), rusqlite_gpkg::GpkgError>(())
 //! // ```
 //! //
 //! // When programmatically constructing parameters, build an iterator of `&Value`
