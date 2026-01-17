@@ -70,6 +70,7 @@ pub(crate) fn sql_select_features<'a, I>(
     geometry_column: &'a str,
     primary_key_column: &'a str,
     other_columns: I,
+    limit: Option<u32>,
 ) -> String
 where
     I: IntoIterator<Item = &'a str>,
@@ -80,13 +81,20 @@ where
         .collect::<Vec<String>>()
         .join(", ");
 
-    if joined.is_empty() {
-        format!(r#"SELECT "{geometry_column}", "{primary_key_column}" FROM "{layer_name}""#,)
+    let limit_clause = match limit {
+        Some(n) => format!("LIMIT {n} OFFSET ?"),
+        None => "".to_string(),
+    };
+
+    let columns = if joined.is_empty() {
+        format!(r#""{geometry_column}", "{primary_key_column}""#,)
     } else {
-        format!(
-            r#"SELECT "{geometry_column}", "{primary_key_column}", {joined} FROM "{layer_name}""#,
-        )
-    }
+        format!(r#""{geometry_column}", "{primary_key_column}", {joined}"#,)
+    };
+
+    format!(
+        r#"SELECT {columns} FROM "{layer_name}" ORDER BY "{primary_key_column}" {limit_clause}"#,
+    )
 }
 
 pub(crate) fn sql_delete_all(layer_name: &str) -> String {

@@ -58,73 +58,47 @@ impl<'a> GpkgLayer<'a> {
             &self.geometry_column,
             &self.primary_key_column,
             columns,
+            None,
         );
 
         self.features_inner(&sql)
+    }
+
+    pub fn features_batch(&self, batch_size: u32) -> Result<GpkgFeatureBatchIterator<'a>> {
+        let columns = self.property_columns.iter().map(|spec| spec.name.as_str());
+        let sql = sql_select_features(
+            &self.layer_name,
+            &self.geometry_column,
+            &self.primary_key_column,
+            columns,
+            Some(batch_size),
+        );
+
+        let stmt = self.conn.connection().prepare(&sql)?;
+
+        Ok(GpkgFeatureBatchIterator {
+            stmt,
+            batch_size,
+            property_columns: self.property_columns.clone(),
+            geometry_column: self.geometry_column.clone(),
+            primary_key_column: self.primary_key_column.clone(),
+            property_index_by_name: self.property_index_by_name.clone(),
+            offset: 0,
+            end_or_invalid_state: false,
+        })
     }
 
     fn features_inner(&self, sql: &str) -> Result<Vec<GpkgFeature>> {
         let mut stmt = self.conn.connection().prepare(sql)?;
         let features = stmt
             .query_map([], |row| {
-                let mut id: Option<i64> = None;
-                let mut geometry: Option<Vec<u8>> = None;
-                let mut properties = Vec::with_capacity(self.property_columns.len());
-                let row_len = self.property_columns.len() + 2;
-
-                for idx in 0..row_len {
-                    let value_ref = row.get_ref(idx)?;
-                    let value = Value::from(value_ref);
-                    let name = if idx == GEOMETRY_INDEX {
-                        self.geometry_column.as_str()
-                    } else if idx == PRIMARY_INDEX {
-                        self.primary_key_column.as_str()
-                    } else {
-                        self.property_columns[idx - 2].name.as_str()
-                    };
-
-                    if idx == GEOMETRY_INDEX {
-                        match value {
-                            Value::Blob(bytes) => geometry = Some(bytes),
-                            Value::Null => geometry = None,
-                            _ => {
-                                return Err(rusqlite::Error::InvalidColumnType(
-                                    idx,
-                                    name.to_string(),
-                                    value_ref.data_type(),
-                                ));
-                            }
-                        }
-                    } else if idx == PRIMARY_INDEX {
-                        match &value {
-                            Value::Integer(value) => id = Some(*value),
-                            _ => {
-                                return Err(rusqlite::Error::InvalidColumnType(
-                                    idx,
-                                    name.to_string(),
-                                    value_ref.data_type(),
-                                ));
-                            }
-                        }
-                    } else {
-                        properties.push(value);
-                    }
-                }
-
-                let id = id.ok_or_else(|| {
-                    rusqlite::Error::InvalidColumnType(
-                        PRIMARY_INDEX,
-                        self.primary_key_column.clone(),
-                        Type::Null,
-                    )
-                })?;
-
-                Ok(GpkgFeature {
-                    id,
-                    geometry,
-                    properties,
-                    property_index_by_name: Arc::clone(&self.property_index_by_name),
-                })
+                row_to_feature(
+                    row,
+                    &self.property_columns,
+                    &self.geometry_column,
+                    &self.primary_key_column,
+                    &self.property_index_by_name,
+                )
             })?
             .collect::<rusqlite::Result<Vec<GpkgFeature>>>()?;
 
@@ -308,6 +282,132 @@ impl<'a> GpkgLayer<'a> {
         let geom = wkb_to_gpkg_geometry(wkb, self.srs_id)?;
 
         Ok(geom)
+    }
+}
+
+fn row_to_feature(
+    row: &rusqlite::Row<'_>,
+    property_columns: &[ColumnSpec],
+    geometry_column: &str,
+    primary_key_column: &str,
+    property_index_by_name: &Arc<HashMap<String, usize>>,
+) -> std::result::Result<GpkgFeature, rusqlite::Error> {
+    let mut id: Option<i64> = None;
+    let mut geometry: Option<Vec<u8>> = None;
+    let mut properties = Vec::with_capacity(property_columns.len());
+    let row_len = property_columns.len() + 2;
+
+    for idx in 0..row_len {
+        let value_ref = row.get_ref(idx)?;
+        let value = Value::from(value_ref);
+        let name = if idx == GEOMETRY_INDEX {
+            geometry_column
+        } else if idx == PRIMARY_INDEX {
+            primary_key_column
+        } else {
+            property_columns[idx - 2].name.as_str()
+        };
+
+        if idx == GEOMETRY_INDEX {
+            match value {
+                Value::Blob(bytes) => geometry = Some(bytes),
+                Value::Null => geometry = None,
+                _ => {
+                    return Err(rusqlite::Error::InvalidColumnType(
+                        idx,
+                        name.to_string(),
+                        value_ref.data_type(),
+                    ));
+                }
+            }
+        } else if idx == PRIMARY_INDEX {
+            match &value {
+                Value::Integer(value) => id = Some(*value),
+                _ => {
+                    return Err(rusqlite::Error::InvalidColumnType(
+                        idx,
+                        name.to_string(),
+                        value_ref.data_type(),
+                    ));
+                }
+            }
+        } else {
+            properties.push(value);
+        }
+    }
+
+    let id = id.ok_or_else(|| {
+        rusqlite::Error::InvalidColumnType(
+            PRIMARY_INDEX,
+            primary_key_column.to_string(),
+            Type::Null,
+        )
+    })?;
+
+    Ok(GpkgFeature {
+        id,
+        geometry,
+        properties,
+        property_index_by_name: property_index_by_name.clone(),
+    })
+}
+
+pub struct GpkgFeatureBatchIterator<'a> {
+    stmt: rusqlite::Statement<'a>,
+    property_columns: Vec<ColumnSpec>,
+    geometry_column: String,
+    primary_key_column: String,
+    property_index_by_name: Arc<HashMap<String, usize>>,
+    batch_size: u32,
+    offset: u32,
+    end_or_invalid_state: bool,
+}
+
+impl<'a> Iterator for GpkgFeatureBatchIterator<'a> {
+    type Item = Result<Vec<GpkgFeature>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.end_or_invalid_state {
+            return None;
+        }
+
+        let result = self.stmt.query_map([self.offset], |row| {
+            row_to_feature(
+                row,
+                &self.property_columns,
+                &self.geometry_column,
+                &self.primary_key_column,
+                &self.property_index_by_name,
+            )
+        });
+
+        let collected_result = match result {
+            Ok(mapped_rows) => mapped_rows.collect::<rusqlite::Result<Vec<GpkgFeature>>>(),
+            Err(e) => {
+                // I don't know in what case some error happens, but I bet it's unrecoverable.
+                self.end_or_invalid_state = true;
+                return Some(Err(e.into()));
+            }
+        };
+
+        let features = match collected_result {
+            Ok(features) => features,
+            Err(e) => {
+                // I don't know in what case some error happens, but I bet it's unrecoverable.
+                self.end_or_invalid_state = true;
+                return Some(Err(e.into()));
+            }
+        };
+
+        // If the result is less than the batch size, it means it reached the end.
+        if features.len() < self.batch_size as usize {
+            self.end_or_invalid_state = true;
+            if features.is_empty() {
+                return None;
+            }
+        }
+
+        Some(Ok(features))
     }
 }
 
