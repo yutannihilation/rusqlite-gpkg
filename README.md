@@ -52,6 +52,10 @@ methods to iterate, insert, or update features. Insertions and updates accept
 any geometry that implements `geo_traits::GeometryTrait<T = f64>`, including
 common types from `geo_types` and parsed `wkt::Wkt`.
 
+`GpkgLayer::features()` always allocates a `Vec<GpkgFeature>` for the whole
+layer. For large datasets, use `features_batch(batch_size)` to stream features
+in chunks and limit peak memory.
+
 ```rs
 use geo_types::Point;
 use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, params};
@@ -72,6 +76,23 @@ let layer = gpkg.create_layer(
 
 layer.insert(Point::new(1.0, 2.0), params!["alpha", 7_i64])?;
 let count = layer.features()?.count();
+# Ok::<(), rusqlite_gpkg::GpkgError>(())
+```
+
+Batch iteration example:
+
+```rs
+use rusqlite_gpkg::Gpkg;
+
+let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+let layer = gpkg.get_layer("points")?;
+for batch in layer.features_batch(100)? {
+    let features = batch?;
+    for feature in features {
+        let _id = feature.id();
+        let _geom = feature.geometry()?;
+    }
+}
 # Ok::<(), rusqlite_gpkg::GpkgError>(())
 ```
 

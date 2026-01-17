@@ -16,6 +16,10 @@
 //! You access a `GpkgLayer` via `Gpkg::get_layer(name)` for existing layers
 //! or `Gpkg::create_layer(...)` for a new layer.
 //!
+//! `GpkgLayer::features()` always allocates a `Vec<GpkgFeature>` for the whole
+//! layer. For large datasets, use `features_batch(batch_size)` to iterate in
+//! chunks and limit peak memory.
+//!
 //! `GpkgLayer::insert` and `GpkgLayer::update` accept any geometry that implements
 //! `geo_traits::GeometryTrait<T = f64>` (for example `geo_types::Point` or `wkt::Wkt`).
 //!
@@ -64,6 +68,23 @@
 //!     }
 //!     Ok(())
 //! }
+//! ```
+//!
+//! If you want to process features in batches:
+//!
+//! ```no_run
+//! use rusqlite_gpkg::Gpkg;
+//!
+//! let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+//! let layer = gpkg.get_layer("points")?;
+//! for batch in layer.features_batch(100)? {
+//!     let features = batch?;
+//!     for feature in features {
+//!         let _id = feature.id();
+//!         let _geom = feature.geometry()?;
+//!     }
+//! }
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
 //! ```
 //!
 //! `Value` is the crate's owned dynamic value used for feature properties. It
