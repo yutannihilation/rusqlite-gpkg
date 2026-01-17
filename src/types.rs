@@ -124,6 +124,15 @@ impl From<f64> for Value {
     }
 }
 
+impl<T: Into<Value>> From<Option<T>> for Value {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(v) => v.into(),
+            None => Value::Null,
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! params {
     () => {

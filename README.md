@@ -78,6 +78,16 @@ let count = layer.features()?.count();
 You might notice the `params!` macro in the example above. It is useful when
 you want to pass a fixed list of values.
 
+`params!` accepts `Option<T>` and converts `None` to SQL `NULL`. Because `None`
+has no inherent type, you may need to annotate it:
+
+```rs
+layer.insert(
+    Point::new(0.0, 0.0),
+    params![Some(1.0_f64), Option::<i64>::None],
+)?;
+```
+
 When programmatically constructing parameters, build an iterator of `&Value`
 from owned values:
 
@@ -204,10 +214,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &columns,
     )?;
 
-    layer.insert(
-        Point::new(1.0, 2.0),  // geometry: You can pass whatever object that implements GeometryTrait
-        params!["alpha", 7_i64], // other properties: pass references to Value
-    )?;
+layer.insert(
+    Point::new(1.0, 2.0),  // geometry: You can pass whatever object that implements GeometryTrait
+    params!["alpha", 7_i64], // other properties: pass references to Value
+)?;
 
     Ok(())
 }

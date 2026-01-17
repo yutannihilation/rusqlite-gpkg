@@ -743,4 +743,44 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn params_macro_supports_nullable_values() -> Result<()> {
+        let gpkg = Gpkg::open_in_memory()?;
+        let columns = vec![
+            ColumnSpec {
+                name: "a".to_string(),
+                column_type: ColumnType::Double,
+            },
+            ColumnSpec {
+                name: "b".to_string(),
+                column_type: ColumnType::Integer,
+            },
+        ];
+
+        let layer = gpkg.create_layer(
+            "nullable_params",
+            "geom",
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        layer.insert(
+            Point::new(0.0, 0.0),
+            params![Some(1.0_f64), Option::<i64>::None],
+        )?;
+
+        let (a, b): (Option<f64>, Option<i64>) = layer.conn.connection().query_row(
+            "SELECT a, b FROM nullable_params WHERE fid = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        assert_eq!(a, Some(1.0));
+        assert_eq!(b, None);
+
+        Ok(())
+    }
 }
