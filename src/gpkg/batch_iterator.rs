@@ -14,6 +14,7 @@ pub struct GpkgFeatureBatchIterator<'a> {
     pub(super) stmt: rusqlite::Statement<'a>,
     pub(super) property_columns: Vec<ColumnSpec>,
     pub(super) geometry_column: String,
+    pub(super) srs_id: u32,
     pub(super) primary_key_column: String,
     pub(super) property_index_by_name: Arc<HashMap<String, usize>>,
     pub(super) batch_size: u32,

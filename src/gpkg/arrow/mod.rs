@@ -4,12 +4,12 @@ use arrow_array::ArrayRef;
 use arrow_schema::{FieldRef, SchemaRef};
 use geoarrow_array::{GeoArrowArray, builder::WkbBuilder};
 
-use crate::{GpkgError, GpkgLayerMetadata, gpkg::gpkg_geometry_to_wkb};
+use crate::{GpkgError, GpkgFeatureBatchIterator, GpkgLayerMetadata, gpkg::gpkg_geometry_to_wkb};
 
-impl GpkgLayerMetadata {
+impl<'a> GpkgFeatureBatchIterator<'a> {
     pub fn get_arrow_schema(&self) -> SchemaRef {
         let mut fields: Vec<FieldRef> = self
-            .other_columns
+            .property_columns
             .iter()
             .map(|col| {
                 let field = match col.column_type {
@@ -42,9 +42,9 @@ impl GpkgLayerMetadata {
         Arc::new(arrow_schema::Schema::new(fields))
     }
 
-    pub fn create_record_batch_builder(&self, batch_size: usize) -> GpkgRecordBatchBuilder {
+    fn create_record_batch_builder(&self, batch_size: usize) -> GpkgRecordBatchBuilder {
         let builders: Vec<GpkgArrayBuilder> = self
-            .other_columns
+            .property_columns
             .iter()
             .map(|col| match col.column_type {
                 crate::ColumnType::Boolean => GpkgArrayBuilder::Boolean(
@@ -71,6 +71,10 @@ impl GpkgLayerMetadata {
             builders,
             geo_builder: wkb_geometry_builder(self.srs_id.to_string(), batch_size),
         }
+    }
+
+    fn next_record_batch(&self) -> crate::error::Result<arrow_array::RecordBatch> {
+        todo!()
     }
 }
 
@@ -182,6 +186,8 @@ impl GpkgRecordBatchBuilder {
         Ok(arrow_array::RecordBatch::try_new(self.schema_ref, columns).unwrap())
     }
 }
+
+// TODO: some iterator returns record batch
 
 fn wkb_geometry_field(field_name: &str, srs_id: String) -> arrow_schema::Field {
     let geoarrow_metadata =

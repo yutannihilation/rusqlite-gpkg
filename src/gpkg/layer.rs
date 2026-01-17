@@ -104,6 +104,7 @@ impl<'a> GpkgLayer<'a> {
             batch_size,
             property_columns: self.property_columns.clone(),
             geometry_column: self.geometry_column.clone(),
+            srs_id: self.srs_id.clone(),
             primary_key_column: self.primary_key_column.clone(),
             property_index_by_name: self.property_index_by_name.clone(),
             offset: 0,
