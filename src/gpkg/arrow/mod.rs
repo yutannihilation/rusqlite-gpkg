@@ -100,7 +100,8 @@ impl<'a> GpkgFeatureRecordBatchIterator<'a> {
         }
     }
 
-    fn next_record_batch(&mut self) -> crate::error::Result<arrow_array::RecordBatch> {
+    // This doesn't advance the offset.
+    fn get_record_batch(&mut self) -> crate::error::Result<arrow_array::RecordBatch> {
         let mut builders = self.create_record_batch_builder();
         let mut rows = self.stmt.query([self.offset])?;
         while let Some(row) = rows.next()? {
@@ -119,7 +120,7 @@ impl<'a> Iterator for GpkgFeatureRecordBatchIterator<'a> {
             return None;
         }
 
-        let result = self.next_record_batch();
+        let result = self.get_record_batch();
 
         let features = match result {
             Ok(features) => features,

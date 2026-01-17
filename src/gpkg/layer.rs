@@ -65,7 +65,21 @@ impl<'a> GpkgLayer<'a> {
             None,
         );
 
-        self.features_inner(&sql)
+        let sql: &str = &sql;
+        let mut stmt = self.conn.connection().prepare(sql)?;
+        let features = stmt
+            .query_map([], |row| {
+                row_to_feature(
+                    row,
+                    &self.property_columns,
+                    &self.geometry_column,
+                    &self.primary_key_column,
+                    &self.property_index_by_name,
+                )
+            })?
+            .collect::<rusqlite::Result<Vec<GpkgFeature>>>()?;
+
+        Ok(features)
     }
 
     /// Return an iterator that yields features in batches.
