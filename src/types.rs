@@ -416,16 +416,16 @@ impl<'a> TryFrom<&'a Value> for Wkb<'a> {
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         match value {
             Value::Geometry(bytes) => {
-                return Ok(crate::gpkg::gpkg_geometry_to_wkb(bytes.as_slice())?);
+                crate::gpkg::gpkg_geometry_to_wkb(bytes.as_slice())
             }
             Value::Blob(bytes) => {
                 let bytes = bytes.as_slice();
                 if bytes.len() >= 4 && bytes[0] == 0x47 && bytes[1] == 0x50 {
-                    return Ok(crate::gpkg::gpkg_geometry_to_wkb(bytes)?);
+                    return crate::gpkg::gpkg_geometry_to_wkb(bytes);
                 }
-                return Ok(Wkb::try_new(bytes)?);
+                Ok(Wkb::try_new(bytes)?)
             }
-            _ => return Err(invalid_type("Wkb", value)),
+            _ => Err(invalid_type("Wkb", value)),
         }
     }
 }

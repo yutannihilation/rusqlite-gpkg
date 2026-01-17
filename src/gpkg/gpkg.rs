@@ -306,12 +306,12 @@ impl Gpkg {
             ],
         )?;
 
-        execute_rtree_sqls(&self.conn, layer_name, &geometry_column, "fid")?;
+        execute_rtree_sqls(&self.conn, layer_name, geometry_column, "fid")?;
 
         let insert_sql =
-            GpkgLayer::build_insert_sql(layer_name, &geometry_column, other_column_specs);
+            GpkgLayer::build_insert_sql(layer_name, geometry_column, other_column_specs);
         let update_sql =
-            GpkgLayer::build_update_sql(layer_name, &geometry_column, "fid", other_column_specs);
+            GpkgLayer::build_update_sql(layer_name, geometry_column, "fid", other_column_specs);
         let property_index_by_name =
             Arc::new(GpkgLayer::build_property_index_by_name(other_column_specs));
 
