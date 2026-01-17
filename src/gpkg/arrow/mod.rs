@@ -1,0 +1,200 @@
+use std::sync::Arc;
+
+use arrow_array::ArrayRef;
+use arrow_schema::{FieldRef, SchemaRef};
+use geoarrow_array::{GeoArrowArray, builder::WkbBuilder};
+
+use crate::{GpkgError, GpkgLayerMetadata, gpkg::gpkg_geometry_to_wkb};
+
+impl GpkgLayerMetadata {
+    pub fn get_arrow_schema(&self) -> SchemaRef {
+        let mut fields: Vec<FieldRef> = self
+            .other_columns
+            .iter()
+            .map(|col| {
+                let field = match col.column_type {
+                    crate::ColumnType::Boolean => {
+                        arrow_schema::Field::new(&col.name, arrow_schema::DataType::Boolean, true)
+                    }
+                    crate::ColumnType::Varchar => {
+                        arrow_schema::Field::new(&col.name, arrow_schema::DataType::Utf8, true)
+                    }
+                    crate::ColumnType::Double => {
+                        arrow_schema::Field::new(&col.name, arrow_schema::DataType::Float64, true)
+                    }
+                    crate::ColumnType::Integer => {
+                        arrow_schema::Field::new(&col.name, arrow_schema::DataType::Int64, true)
+                    }
+                    crate::ColumnType::Geometry => {
+                        wkb_geometry_field(&col.name, self.srs_id.to_string())
+                    }
+                };
+
+                Arc::new(field)
+            })
+            .collect();
+
+        fields.push(Arc::new(wkb_geometry_field(
+            &self.geometry_column,
+            self.srs_id.to_string(),
+        )));
+
+        Arc::new(arrow_schema::Schema::new(fields))
+    }
+
+    pub fn create_record_batch_builder(&self, batch_size: usize) -> GpkgRecordBatchBuilder {
+        let builders: Vec<GpkgArrayBuilder> = self
+            .other_columns
+            .iter()
+            .map(|col| match col.column_type {
+                crate::ColumnType::Boolean => GpkgArrayBuilder::Boolean(
+                    arrow_array::builder::BooleanBuilder::with_capacity(batch_size),
+                ),
+                crate::ColumnType::Varchar => GpkgArrayBuilder::Varchar(
+                    arrow_array::builder::StringBuilder::with_capacity(batch_size, 8 * batch_size),
+                ),
+                crate::ColumnType::Double => GpkgArrayBuilder::Double(
+                    arrow_array::builder::Float64Builder::with_capacity(batch_size),
+                ),
+                crate::ColumnType::Integer => GpkgArrayBuilder::Integer(
+                    arrow_array::builder::Int64Builder::with_capacity(batch_size),
+                ),
+                crate::ColumnType::Geometry => GpkgArrayBuilder::Geometry(wkb_geometry_builder(
+                    self.srs_id.to_string(),
+                    batch_size,
+                )),
+            })
+            .collect();
+
+        GpkgRecordBatchBuilder {
+            schema_ref: self.get_arrow_schema(),
+            builders,
+            geo_builder: wkb_geometry_builder(self.srs_id.to_string(), batch_size),
+        }
+    }
+}
+
+pub enum GpkgArrayBuilder {
+    Boolean(arrow_array::builder::BooleanBuilder),
+    Varchar(arrow_array::builder::StringBuilder),
+    Double(arrow_array::builder::Float64Builder),
+    Integer(arrow_array::builder::Int64Builder),
+    // Note: Since WkbBuilder doesn't implement ArrayBuilder trait, we cannot use Box<dyn ArrayBuilder> to unify this
+    Geometry(WkbBuilder<i32>),
+}
+
+impl GpkgArrayBuilder {
+    fn push(&mut self, value: rusqlite::types::Value) -> crate::error::Result<()> {
+        match (self, value) {
+            // null
+            (GpkgArrayBuilder::Boolean(builder), rusqlite::types::Value::Null) => {
+                builder.append_null();
+            }
+            (GpkgArrayBuilder::Varchar(builder), rusqlite::types::Value::Null) => {
+                builder.append_null();
+            }
+            (GpkgArrayBuilder::Double(builder), rusqlite::types::Value::Null) => {
+                builder.append_null();
+            }
+            (GpkgArrayBuilder::Integer(builder), rusqlite::types::Value::Null) => {
+                builder.append_null();
+            }
+            (GpkgArrayBuilder::Geometry(builder), rusqlite::types::Value::Null) => {
+                builder.push_wkb(None);
+            }
+            // non-null value
+            (GpkgArrayBuilder::Boolean(builder), rusqlite::types::Value::Integer(i)) => {
+                builder.append_value(i == 1);
+            }
+            (GpkgArrayBuilder::Varchar(builder), rusqlite::types::Value::Text(t)) => {
+                builder.append_value(t);
+            }
+            (GpkgArrayBuilder::Double(builder), rusqlite::types::Value::Real(f)) => {
+                builder.append_value(f);
+            }
+            (GpkgArrayBuilder::Integer(builder), rusqlite::types::Value::Integer(i)) => {
+                builder.append_value(i);
+            }
+            (GpkgArrayBuilder::Geometry(builder), rusqlite::types::Value::Blob(b)) => {
+                let wkb = gpkg_geometry_to_wkb(&b)?;
+                builder.push_wkb(Some(wkb.buf())).unwrap();
+            }
+            _ => unreachable!(),
+        }
+
+        Ok(())
+    }
+}
+
+pub struct GpkgRecordBatchBuilder {
+    pub(crate) schema_ref: SchemaRef,
+    pub(crate) builders: Vec<GpkgArrayBuilder>,
+    pub(crate) geo_builder: WkbBuilder<i32>,
+}
+
+impl GpkgRecordBatchBuilder {
+    pub(crate) fn push(&mut self, row: rusqlite::Row<'_>) -> crate::error::Result<()> {
+        let n = self.builders.len();
+        for i in 0..n {
+            match row.get::<usize, rusqlite::types::Value>(i) {
+                Ok(v) => self.builders[i].push(v)?,
+                Err(e) => return Err(GpkgError::Sql(e)),
+            }
+        }
+
+        match row.get::<usize, rusqlite::types::Value>(n) {
+            Ok(rusqlite::types::Value::Blob(b)) => {
+                let wkb = gpkg_geometry_to_wkb(&b)?;
+                self.geo_builder.push_wkb(Some(wkb.buf())).unwrap();
+            }
+            Ok(rusqlite::types::Value::Null) => {
+                self.geo_builder.push_wkb(None).unwrap();
+            }
+            Ok(_) => return Err(GpkgError::Message("Invalid value".to_string())),
+            Err(e) => return Err(GpkgError::Sql(e)),
+        }
+
+        Ok(())
+    }
+
+    fn finish(self) -> crate::error::Result<arrow_array::RecordBatch> {
+        let mut columns: Vec<ArrayRef> = self
+            .builders
+            .into_iter()
+            .map(|b| match b {
+                GpkgArrayBuilder::Boolean(mut builder) => {
+                    arrow_array::builder::ArrayBuilder::finish(&mut builder)
+                }
+                GpkgArrayBuilder::Varchar(mut builder) => {
+                    arrow_array::builder::ArrayBuilder::finish(&mut builder)
+                }
+                GpkgArrayBuilder::Double(mut builder) => {
+                    arrow_array::builder::ArrayBuilder::finish(&mut builder)
+                }
+                GpkgArrayBuilder::Integer(mut builder) => {
+                    arrow_array::builder::ArrayBuilder::finish(&mut builder)
+                }
+                GpkgArrayBuilder::Geometry(builder) => builder.finish().into_array_ref(),
+            })
+            .collect();
+        columns.push(self.geo_builder.finish().into_array_ref());
+
+        Ok(arrow_array::RecordBatch::try_new(self.schema_ref, columns).unwrap())
+    }
+}
+
+fn wkb_geometry_field(field_name: &str, srs_id: String) -> arrow_schema::Field {
+    let geoarrow_metadata =
+        geoarrow_schema::Metadata::new(geoarrow_schema::Crs::from_srid(srs_id.clone()), None);
+    geoarrow_schema::GeoArrowType::Wkb(geoarrow_schema::WkbType::new(geoarrow_metadata.into()))
+        .to_field(field_name, true)
+}
+
+fn wkb_geometry_builder(srs_id: String, batch_size: usize) -> WkbBuilder<i32> {
+    let geoarrow_metadata =
+        geoarrow_schema::Metadata::new(geoarrow_schema::Crs::from_srid(srs_id.clone()), None);
+    WkbBuilder::with_capacity(
+        geoarrow_schema::WkbType::new(geoarrow_metadata.into()),
+        geoarrow_array::capacity::WkbCapacity::new(21 * batch_size, batch_size),
+    )
+}
