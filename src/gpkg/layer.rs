@@ -1,5 +1,7 @@
 use crate::Value;
 use crate::error::{GpkgError, Result};
+#[cfg(feature = "arrow")]
+use crate::gpkg::arrow::GpkgFeatureRecordBatchIterator;
 use crate::ogc_sql::{sql_delete_all, sql_insert_feature, sql_select_features};
 use crate::types::ColumnSpec;
 use geo_traits::GeometryTrait;
@@ -99,17 +101,26 @@ impl<'a> GpkgLayer<'a> {
 
         let stmt = self.conn.connection().prepare(&sql)?;
 
-        Ok(GpkgFeatureBatchIterator {
-            stmt,
-            batch_size,
-            property_columns: self.property_columns.clone(),
-            geometry_column: self.geometry_column.clone(),
-            srs_id: self.srs_id.clone(),
-            primary_key_column: self.primary_key_column.clone(),
-            property_index_by_name: self.property_index_by_name.clone(),
-            offset: 0,
-            end_or_invalid_state: false,
-        })
+        Ok(GpkgFeatureBatchIterator::new(stmt, &self, batch_size))
+    }
+
+    #[cfg(feature = "arrow")]
+    pub fn features_record_batch(
+        &self,
+        batch_size: u32,
+    ) -> Result<GpkgFeatureRecordBatchIterator<'a>> {
+        let columns = self.property_columns.iter().map(|spec| spec.name.as_str());
+        let sql = sql_select_features(
+            &self.layer_name,
+            &self.geometry_column,
+            &self.primary_key_column,
+            columns,
+            Some(batch_size),
+        );
+
+        let stmt = self.conn.connection().prepare(&sql)?;
+
+        Ok(GpkgFeatureRecordBatchIterator::new(stmt, &self, batch_size))
     }
 
     fn features_inner(&self, sql: &str) -> Result<Vec<GpkgFeature>> {

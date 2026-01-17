@@ -4,9 +4,34 @@ use arrow_array::ArrayRef;
 use arrow_schema::{FieldRef, SchemaRef};
 use geoarrow_array::{GeoArrowArray, builder::WkbBuilder};
 
-use crate::{GpkgError, GpkgFeatureBatchIterator, GpkgLayerMetadata, gpkg::gpkg_geometry_to_wkb};
+use crate::{ColumnSpec, GpkgError, GpkgLayer, gpkg::gpkg_geometry_to_wkb};
 
-impl<'a> GpkgFeatureBatchIterator<'a> {
+/// Iterator that yields `RecordBatch`s` of features from a layer.
+pub struct GpkgFeatureRecordBatchIterator<'a> {
+    pub(super) stmt: rusqlite::Statement<'a>,
+    pub(super) property_columns: Vec<ColumnSpec>,
+    pub(super) geometry_column: String,
+    pub(super) srs_id: u32,
+    pub(super) batch_size: usize,
+    pub(super) offset: u32,
+    pub(super) end_or_invalid_state: bool,
+}
+
+impl<'a> GpkgFeatureRecordBatchIterator<'a> {
+    pub(crate) fn new(stmt: rusqlite::Statement<'a>, layer: &GpkgLayer, batch_size: u32) -> Self {
+        Self {
+            stmt,
+            batch_size: batch_size as usize,
+            property_columns: layer.property_columns.clone(),
+            geometry_column: layer.geometry_column.clone(),
+            srs_id: layer.srs_id.clone(),
+            offset: 0,
+            end_or_invalid_state: false,
+        }
+    }
+}
+
+impl<'a> GpkgFeatureRecordBatchIterator<'a> {
     pub fn get_arrow_schema(&self) -> SchemaRef {
         let mut fields: Vec<FieldRef> = self
             .property_columns
@@ -42,39 +67,81 @@ impl<'a> GpkgFeatureBatchIterator<'a> {
         Arc::new(arrow_schema::Schema::new(fields))
     }
 
-    fn create_record_batch_builder(&self, batch_size: usize) -> GpkgRecordBatchBuilder {
-        let builders: Vec<GpkgArrayBuilder> = self
-            .property_columns
-            .iter()
-            .map(|col| match col.column_type {
-                crate::ColumnType::Boolean => GpkgArrayBuilder::Boolean(
-                    arrow_array::builder::BooleanBuilder::with_capacity(batch_size),
-                ),
-                crate::ColumnType::Varchar => GpkgArrayBuilder::Varchar(
-                    arrow_array::builder::StringBuilder::with_capacity(batch_size, 8 * batch_size),
-                ),
-                crate::ColumnType::Double => GpkgArrayBuilder::Double(
-                    arrow_array::builder::Float64Builder::with_capacity(batch_size),
-                ),
-                crate::ColumnType::Integer => GpkgArrayBuilder::Integer(
-                    arrow_array::builder::Int64Builder::with_capacity(batch_size),
-                ),
-                crate::ColumnType::Geometry => GpkgArrayBuilder::Geometry(wkb_geometry_builder(
-                    self.srs_id.to_string(),
-                    batch_size,
-                )),
-            })
-            .collect();
+    fn create_record_batch_builder(&self) -> GpkgRecordBatchBuilder {
+        let builders: Vec<GpkgArrayBuilder> =
+            self.property_columns
+                .iter()
+                .map(|col| match col.column_type {
+                    crate::ColumnType::Boolean => GpkgArrayBuilder::Boolean(
+                        arrow_array::builder::BooleanBuilder::with_capacity(self.batch_size),
+                    ),
+                    crate::ColumnType::Varchar => GpkgArrayBuilder::Varchar(
+                        arrow_array::builder::StringBuilder::with_capacity(
+                            self.batch_size,
+                            8 * self.batch_size,
+                        ),
+                    ),
+                    crate::ColumnType::Double => GpkgArrayBuilder::Double(
+                        arrow_array::builder::Float64Builder::with_capacity(self.batch_size),
+                    ),
+                    crate::ColumnType::Integer => GpkgArrayBuilder::Integer(
+                        arrow_array::builder::Int64Builder::with_capacity(self.batch_size),
+                    ),
+                    crate::ColumnType::Geometry => GpkgArrayBuilder::Geometry(
+                        wkb_geometry_builder(self.srs_id.to_string(), self.batch_size),
+                    ),
+                })
+                .collect();
 
         GpkgRecordBatchBuilder {
             schema_ref: self.get_arrow_schema(),
             builders,
-            geo_builder: wkb_geometry_builder(self.srs_id.to_string(), batch_size),
+            geo_builder: wkb_geometry_builder(self.srs_id.to_string(), self.batch_size),
         }
     }
 
-    fn next_record_batch(&self) -> crate::error::Result<arrow_array::RecordBatch> {
-        todo!()
+    fn next_record_batch(&mut self) -> crate::error::Result<arrow_array::RecordBatch> {
+        let mut builders = self.create_record_batch_builder();
+        let mut rows = self.stmt.query([self.offset])?;
+        while let Some(row) = rows.next()? {
+            builders.push(row)?;
+        }
+
+        builders.finish()
+    }
+}
+
+impl<'a> Iterator for GpkgFeatureRecordBatchIterator<'a> {
+    type Item = crate::error::Result<arrow_array::RecordBatch>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.end_or_invalid_state {
+            return None;
+        }
+
+        let result = self.next_record_batch();
+
+        let features = match result {
+            Ok(features) => features,
+            Err(e) => {
+                // I don't know in what case some error happens, but I bet it's unrecoverable.
+                self.end_or_invalid_state = true;
+                return Some(Err(e.into()));
+            }
+        };
+
+        // If the result is less than the batch size, it means it reached the end.
+        let result_size = features.num_rows();
+        if result_size < self.batch_size as usize {
+            self.end_or_invalid_state = true;
+            if result_size == 0 {
+                return None;
+            }
+        }
+
+        self.offset += result_size as u32;
+
+        Some(Ok(features))
     }
 }
 
@@ -137,7 +204,7 @@ pub struct GpkgRecordBatchBuilder {
 }
 
 impl GpkgRecordBatchBuilder {
-    pub(crate) fn push(&mut self, row: rusqlite::Row<'_>) -> crate::error::Result<()> {
+    pub(crate) fn push(&mut self, row: &rusqlite::Row<'_>) -> crate::error::Result<()> {
         let n = self.builders.len();
         for i in 0..n {
             match row.get::<usize, rusqlite::types::Value>(i) {
