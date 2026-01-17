@@ -227,10 +227,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &columns,
     )?;
 
-layer.insert(
-    Point::new(1.0, 2.0),  // geometry: You can pass whatever object that implements GeometryTrait
-    params!["alpha", 7_i64], // other properties: pass references to Value
-)?;
+    layer.insert(
+        Point::new(1.0, 2.0),    // geometry: You can pass whatever object that implements GeometryTrait
+        params!["alpha", 7_i64], // other properties: pass references to Value
+    )?;
 
     Ok(())
 }
