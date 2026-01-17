@@ -65,8 +65,10 @@
 //! }
 //! ```
 //!
-//! `Value` is the crate's owned dynamic value used for feature properties.
-//! Convert using `try_into()` or match directly:
+//! `Value` is the crate's owned dynamic value used for feature properties. It
+//! mirrors SQLite's dynamic typing (null, integer, real, text, blob) and is
+//! returned by `GpkgFeature::property` as `Option<Value>`. Convert using
+//! `try_into()` or match directly:
 //!
 //! ```no_run
 //! # use rusqlite_gpkg::Gpkg;
@@ -79,7 +81,8 @@
 //! ```
 //!
 //! The conversion above returns an error if the value is `NULL`. If you want to
-//! handle `NULL`, convert to `Option<T>`; `NULL` becomes `None`:
+//! handle `NULL`, convert to `Option<T>`; `NULL` becomes `None` and non-null
+//! values become `Some(T)`:
 //!
 //! ```no_run
 //! use rusqlite_gpkg::Value;
