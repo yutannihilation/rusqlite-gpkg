@@ -116,7 +116,8 @@ use wkt::to_wkt::write_geometry;
 
 let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
 let layer = gpkg.get_layer("points")?;
-let feature = layer.features()?.next().expect("feature");
+let features = layer.features()?;
+let feature = features.first().expect("feature");
 let id = feature.id();
 let geom = feature.geometry()?;
 let mut wkt = String::new();
@@ -140,7 +141,8 @@ use rusqlite_gpkg::Gpkg;
 
 let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
 let layer = gpkg.get_layer("points")?;
-let feature = layer.features()?.next().expect("feature");
+let features = layer.features()?;
+let feature = features.first().expect("feature");
 
 let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
 let active: bool = feature.property("active").ok_or("missing active")?.try_into()?;

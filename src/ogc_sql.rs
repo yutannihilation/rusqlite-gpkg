@@ -81,12 +81,10 @@ where
         .join(", ");
 
     if joined.is_empty() {
-        format!(
-            r#"SELECT "{geometry_column}", "{primary_key_column}" FROM "{layer_name}" ORDER BY "{primary_key_column}""#,
-        )
+        format!(r#"SELECT "{geometry_column}", "{primary_key_column}" FROM "{layer_name}""#,)
     } else {
         format!(
-            r#"SELECT "{geometry_column}", "{primary_key_column}", {joined} FROM "{layer_name}" ORDER BY "{primary_key_column}""#,
+            r#"SELECT "{geometry_column}", "{primary_key_column}", {joined} FROM "{layer_name}""#,
         )
     }
 }

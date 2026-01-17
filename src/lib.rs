@@ -27,7 +27,8 @@
 //! let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
 //! let layers = gpkg.list_layers()?;
 //! let layer = gpkg.get_layer(&layers[0])?;
-//! let feature = layer.features()?.next().expect("feature");
+//! let features = layer.features()?;
+//! let feature = features.first().expect("feature");
 //! let _id = feature.id();
 //! let _geom = feature.geometry()?;
 //! let _name: String = feature
@@ -74,7 +75,8 @@
 //! # use rusqlite_gpkg::Gpkg;
 //! # let gpkg = Gpkg::open("data.gpkg")?;
 //! # let layer = gpkg.get_layer("points")?;
-//! # let feature = layer.features()?.next().expect("feature");
+//! # let features = layer.features()?;
+//! # let feature = features.first().expect("feature");
 //! let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
 //! let active: bool = feature.property("active").ok_or("missing active")?.try_into()?;
 //! # Ok::<(), rusqlite_gpkg::GpkgError>(())
@@ -173,7 +175,7 @@ mod ogc_sql;
 mod types;
 
 pub use error::{GpkgError, Result};
-pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureIterator, GpkgLayer};
+pub use gpkg::{Gpkg, GpkgFeature, GpkgLayer};
 pub use sql_functions::register_spatial_functions;
 pub use types::{ColumnSpec, ColumnType, Value};
 

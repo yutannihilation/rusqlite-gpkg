@@ -7,7 +7,7 @@ mod feature;
 mod gpkg;
 mod layer;
 
-pub use feature::{GpkgFeature, GpkgFeatureIterator};
+pub use feature::GpkgFeature;
 pub use gpkg::Gpkg;
 pub use layer::GpkgLayer;
 

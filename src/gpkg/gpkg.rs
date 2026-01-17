@@ -599,40 +599,33 @@ mod tests {
 
         let reopened_layer = reopened.get_layer("points")?;
         let features = reopened_layer.features()?;
-        let collected: Vec<_> = features.collect();
-        assert_eq!(collected.len(), 2);
+        assert_eq!(features.len(), 2);
 
-        assert_eq!(collected[0].id(), 1);
-        let name: String = collected[0]
+        assert_eq!(features[0].id(), 1);
+        let name: String = features[0]
             .property("name")
             .ok_or("missing name")?
             .try_into()?;
         assert_eq!(name, "alpha");
-        let value: i64 = collected[0]
+        let value: i64 = features[0]
             .property("value")
             .ok_or("missing value")?
             .try_into()?;
         assert_eq!(value, 7);
-        assert_eq!(
-            collected[0].geometry()?.geometry_type(),
-            GeometryType::Point
-        );
+        assert_eq!(features[0].geometry()?.geometry_type(), GeometryType::Point);
 
-        assert_eq!(collected[1].id(), 2);
-        let name: String = collected[1]
+        assert_eq!(features[1].id(), 2);
+        let name: String = features[1]
             .property("name")
             .ok_or("missing name")?
             .try_into()?;
         assert_eq!(name, "beta");
-        let value: i64 = collected[1]
+        let value: i64 = features[1]
             .property("value")
             .ok_or("missing value")?
             .try_into()?;
         assert_eq!(value, 9);
-        assert_eq!(
-            collected[1].geometry()?.geometry_type(),
-            GeometryType::Point
-        );
+        assert_eq!(features[1].geometry()?.geometry_type(), GeometryType::Point);
 
         let _ = fs::remove_file(&path);
         Ok(())
@@ -677,40 +670,33 @@ mod tests {
 
         let restored_layer = restored.get_layer("points")?;
         let features = restored_layer.features()?;
-        let collected: Vec<_> = features.collect();
-        assert_eq!(collected.len(), 2);
+        assert_eq!(features.len(), 2);
 
-        assert_eq!(collected[0].id(), 1);
-        let name: String = collected[0]
+        assert_eq!(features[0].id(), 1);
+        let name: String = features[0]
             .property("name")
             .ok_or("missing name")?
             .try_into()?;
         assert_eq!(name, "alpha");
-        let value: i64 = collected[0]
+        let value: i64 = features[0]
             .property("value")
             .ok_or("missing value")?
             .try_into()?;
         assert_eq!(value, 7);
-        assert_eq!(
-            collected[0].geometry()?.geometry_type(),
-            GeometryType::Point
-        );
+        assert_eq!(features[0].geometry()?.geometry_type(), GeometryType::Point);
 
-        assert_eq!(collected[1].id(), 2);
-        let name: String = collected[1]
+        assert_eq!(features[1].id(), 2);
+        let name: String = features[1]
             .property("name")
             .ok_or("missing name")?
             .try_into()?;
         assert_eq!(name, "beta");
-        let value: i64 = collected[1]
+        let value: i64 = features[1]
             .property("value")
             .ok_or("missing value")?
             .try_into()?;
         assert_eq!(value, 9);
-        assert_eq!(
-            collected[1].geometry()?.geometry_type(),
-            GeometryType::Point
-        );
+        assert_eq!(features[1].geometry()?.geometry_type(), GeometryType::Point);
 
         Ok(())
     }

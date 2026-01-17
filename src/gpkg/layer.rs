@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wkb::reader::Wkb;
 
-use super::{Gpkg, GpkgFeature, GpkgFeatureIterator, wkb_to_gpkg_geometry};
+use super::{Gpkg, GpkgFeature, wkb_to_gpkg_geometry};
 
 #[derive(Debug)]
 /// A GeoPackage layer with geometry metadata and column specs.
@@ -32,7 +32,7 @@ const GEOMETRY_INDEX: usize = 0;
 const PRIMARY_INDEX: usize = 1;
 
 impl<'a> GpkgLayer<'a> {
-    /// Iterate over features in the layer in rowid order.
+    /// Return all the features in the layer.
     ///
     /// Example:
     /// ```no_run
@@ -46,16 +46,25 @@ impl<'a> GpkgLayer<'a> {
     /// }
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn features(&self) -> Result<GpkgFeatureIterator> {
+    ///
+    /// ## Why does this return a vector instead of an iterator?
+    ///
+    /// I was hoping we could avoid allocation here, but it seems rusqlite's
+    /// API requires allocation.
+    pub fn features(&self) -> Result<Vec<GpkgFeature>> {
         let columns = self.property_columns.iter().map(|spec| spec.name.as_str());
-
         let sql = sql_select_features(
             &self.layer_name,
             &self.geometry_column,
             &self.primary_key_column,
             columns,
         );
-        let mut stmt = self.conn.connection().prepare(&sql)?;
+
+        self.features_inner(&sql)
+    }
+
+    fn features_inner(&self, sql: &str) -> Result<Vec<GpkgFeature>> {
+        let mut stmt = self.conn.connection().prepare(sql)?;
         let features = stmt
             .query_map([], |row| {
                 let mut id: Option<i64> = None;
@@ -117,11 +126,9 @@ impl<'a> GpkgLayer<'a> {
                     property_index_by_name: Arc::clone(&self.property_index_by_name),
                 })
             })?
-            .collect::<std::result::Result<Vec<GpkgFeature>, _>>()?;
+            .collect::<rusqlite::Result<Vec<GpkgFeature>>>()?;
 
-        Ok(GpkgFeatureIterator {
-            features: features.into_iter(),
-        })
+        Ok(features)
     }
 
     /// Remove all rows from the layer.
@@ -366,7 +373,8 @@ mod tests {
         )?;
         assert_eq!(geom_blob, expected_blob);
 
-        let feature = layer.features()?.next().expect("inserted feature");
+        let features = layer.features()?;
+        let feature = features.first().expect("inserted feature");
         let geom = feature.geometry()?;
         assert_eq!(geom.geometry_type(), geometry_type);
         assert_eq!(geom.dimension(), geometry_dimension);
@@ -386,9 +394,9 @@ mod tests {
         let lines = gpkg.get_layer("lines")?;
         let polygons = gpkg.get_layer("polygons")?;
 
-        assert_eq!(points.features()?.count(), 5);
-        assert_eq!(lines.features()?.count(), 3);
-        assert_eq!(polygons.features()?.count(), 2);
+        assert_eq!(points.features()?.len(), 5);
+        assert_eq!(lines.features()?.len(), 3);
+        assert_eq!(polygons.features()?.len(), 2);
 
         Ok(())
     }
@@ -397,8 +405,8 @@ mod tests {
     fn reads_geometry_and_properties_from_points() -> Result<()> {
         let gpkg = Gpkg::open_read_only(generated_gpkg_path())?;
         let layer = gpkg.get_layer("points")?;
-        let mut iter = layer.features()?;
-        let feature = iter.next().expect("first feature");
+        let features = layer.features()?;
+        let feature = features.first().expect("first feature");
 
         let geom = feature.geometry()?;
         assert_eq!(geom.geometry_type(), GeometryType::Point);

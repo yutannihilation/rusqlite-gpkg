@@ -22,7 +22,8 @@ impl GpkgFeature {
     ///
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
     /// let layer = gpkg.get_layer("points")?;
-    /// let feature = layer.features()?.next().expect("feature");
+    /// let features = layer.features()?;
+    /// let feature = features.first().expect("feature");
     /// let _id = feature.id();
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
@@ -38,7 +39,8 @@ impl GpkgFeature {
     ///
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
     /// let layer = gpkg.get_layer("points")?;
-    /// let feature = layer.features()?.next().expect("feature");
+    /// let features = layer.features()?;
+    /// let feature = features.first().expect("feature");
     /// let _geom = feature.geometry()?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
@@ -61,7 +63,8 @@ impl GpkgFeature {
     ///
     /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
     /// let layer = gpkg.get_layer("points")?;
-    /// let feature = layer.features()?.next().expect("feature");
+    /// let features = layer.features()?;
+    /// let feature = features.first().expect("feature");
     /// let value: String = feature
     ///     .property("name")
     ///     .ok_or("missing name")?
@@ -98,19 +101,6 @@ impl GpkgFeature {
             properties: properties.into_iter().collect(),
             property_index_by_name: Arc::new(property_index_by_name),
         })
-    }
-}
-
-/// Owned iterator over features.
-pub struct GpkgFeatureIterator {
-    pub(super) features: std::vec::IntoIter<GpkgFeature>,
-}
-
-impl Iterator for GpkgFeatureIterator {
-    type Item = GpkgFeature;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.features.next()
     }
 }
 
