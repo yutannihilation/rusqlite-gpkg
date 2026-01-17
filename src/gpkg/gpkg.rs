@@ -9,7 +9,7 @@ use crate::ogc_sql::{
     sql_create_table, sql_drop_table, sql_table_columns,
 };
 use crate::sql_functions::register_spatial_functions;
-use crate::types::{ColumnSpec, ColumnSpecs};
+use crate::types::{ColumnSpec, LayerMetadata};
 use rusqlite::OpenFlags;
 use std::path::Path;
 use std::sync::Arc;
@@ -188,7 +188,13 @@ impl Gpkg {
     pub fn get_layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
-        let column_specs = self.get_column_specs(layer_name, &geometry_column)?;
+        let column_specs = self.get_column_specs(
+            layer_name,
+            &geometry_column,
+            geometry_type,
+            geometry_dimension,
+            srs_id,
+        )?;
         let primary_key_column = column_specs.primary_key_column.clone();
         let other_columns = column_specs.other_columns;
 
@@ -407,7 +413,10 @@ impl Gpkg {
         &self,
         layer_name: &str,
         geometry_column: &str,
-    ) -> Result<ColumnSpecs> {
+        geometry_type: wkb::reader::GeometryType,
+        geometry_dimension: wkb::reader::Dimension,
+        srs_id: u32,
+    ) -> Result<LayerMetadata> {
         let query = sql_table_columns(layer_name);
         let mut stmt = self.conn.prepare(&query)?;
 
@@ -461,9 +470,12 @@ impl Gpkg {
             GpkgError::Message(format!("No geometry column found for layer: {layer_name}"))
         })?;
 
-        Ok(ColumnSpecs {
+        Ok(LayerMetadata {
             primary_key_column,
             geometry_column,
+            geometry_type,
+            geometry_dimension,
+            srs_id,
             other_columns,
         })
     }

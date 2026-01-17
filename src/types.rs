@@ -1,5 +1,5 @@
 use crate::error::GpkgError;
-use wkb::reader::Wkb;
+use wkb::reader::{Dimension, GeometryType, Wkb};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[repr(C)]
@@ -18,9 +18,12 @@ pub struct ColumnSpec {
 }
 
 #[derive(Clone, Debug)]
-pub struct ColumnSpecs {
+pub struct LayerMetadata {
     pub primary_key_column: String,
     pub geometry_column: String,
+    pub geometry_type: GeometryType,
+    pub geometry_dimension: Dimension,
+    pub srs_id: u32,
     pub other_columns: Vec<ColumnSpec>,
 }
 
