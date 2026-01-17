@@ -10,6 +10,9 @@ use wkb::reader::Wkb;
 
 use super::{Gpkg, GpkgFeature, wkb_to_gpkg_geometry};
 
+mod batch_iterator;
+use batch_iterator::GpkgFeatureBatchIterator;
+
 #[derive(Debug)]
 /// A GeoPackage layer with geometry metadata and column specs.
 pub struct GpkgLayer<'a> {
@@ -64,6 +67,27 @@ impl<'a> GpkgLayer<'a> {
         self.features_inner(&sql)
     }
 
+    /// Return an iterator that yields features in batches.
+    ///
+    /// This is intended for large layers where allocating a single `Vec<GpkgFeature>`
+    /// could be expensive. Each iterator item is a `Vec<GpkgFeature>` with up to
+    /// `batch_size` features.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// let layer = gpkg.get_layer("points")?;
+    /// for batch in layer.features_batch(100)? {
+    ///     let features = batch?;
+    ///     for feature in features {
+    ///         let _id = feature.id();
+    ///         let _geom = feature.geometry()?;
+    ///     }
+    /// }
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
     pub fn features_batch(&self, batch_size: u32) -> Result<GpkgFeatureBatchIterator<'a>> {
         let columns = self.property_columns.iter().map(|spec| spec.name.as_str());
         let sql = sql_select_features(
@@ -350,65 +374,6 @@ fn row_to_feature(
         properties,
         property_index_by_name: property_index_by_name.clone(),
     })
-}
-
-pub struct GpkgFeatureBatchIterator<'a> {
-    stmt: rusqlite::Statement<'a>,
-    property_columns: Vec<ColumnSpec>,
-    geometry_column: String,
-    primary_key_column: String,
-    property_index_by_name: Arc<HashMap<String, usize>>,
-    batch_size: u32,
-    offset: u32,
-    end_or_invalid_state: bool,
-}
-
-impl<'a> Iterator for GpkgFeatureBatchIterator<'a> {
-    type Item = Result<Vec<GpkgFeature>>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.end_or_invalid_state {
-            return None;
-        }
-
-        let result = self.stmt.query_map([self.offset], |row| {
-            row_to_feature(
-                row,
-                &self.property_columns,
-                &self.geometry_column,
-                &self.primary_key_column,
-                &self.property_index_by_name,
-            )
-        });
-
-        let collected_result = match result {
-            Ok(mapped_rows) => mapped_rows.collect::<rusqlite::Result<Vec<GpkgFeature>>>(),
-            Err(e) => {
-                // I don't know in what case some error happens, but I bet it's unrecoverable.
-                self.end_or_invalid_state = true;
-                return Some(Err(e.into()));
-            }
-        };
-
-        let features = match collected_result {
-            Ok(features) => features,
-            Err(e) => {
-                // I don't know in what case some error happens, but I bet it's unrecoverable.
-                self.end_or_invalid_state = true;
-                return Some(Err(e.into()));
-            }
-        };
-
-        // If the result is less than the batch size, it means it reached the end.
-        if features.len() < self.batch_size as usize {
-            self.end_or_invalid_state = true;
-            if features.is_empty() {
-                return None;
-            }
-        }
-
-        Some(Ok(features))
-    }
 }
 
 #[cfg(test)]

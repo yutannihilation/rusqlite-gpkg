@@ -415,9 +415,7 @@ impl<'a> TryFrom<&'a Value> for Wkb<'a> {
     #[inline]
     fn try_from(value: &'a Value) -> Result<Self, Self::Error> {
         match value {
-            Value::Geometry(bytes) => {
-                crate::gpkg::gpkg_geometry_to_wkb(bytes.as_slice())
-            }
+            Value::Geometry(bytes) => crate::gpkg::gpkg_geometry_to_wkb(bytes.as_slice()),
             Value::Blob(bytes) => {
                 let bytes = bytes.as_slice();
                 if bytes.len() >= 4 && bytes[0] == 0x47 && bytes[1] == 0x50 {
