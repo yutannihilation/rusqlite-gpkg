@@ -70,3 +70,18 @@ impl From<&str> for GpkgError {
 }
 
 pub type Result<T> = std::result::Result<T, GpkgError>;
+
+#[cfg(feature = "arrow")]
+impl From<GpkgError> for arrow_schema::ArrowError {
+    fn from(value: GpkgError) -> Self {
+        arrow_schema::ArrowError::ExternalError(value.into())
+    }
+}
+
+#[cfg(feature = "arrow")]
+impl From<arrow_schema::ArrowError> for GpkgError {
+    fn from(value: arrow_schema::ArrowError) -> Self {
+        // TODO
+        GpkgError::Message(format!("{value:?}"))
+    }
+}

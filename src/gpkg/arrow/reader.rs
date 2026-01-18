@@ -135,7 +135,7 @@ impl<'a> ArrowGpkgReader<'a> {
 }
 
 impl<'a> Iterator for ArrowGpkgReader<'a> {
-    type Item = crate::error::Result<arrow_array::RecordBatch>;
+    type Item = Result<arrow_array::RecordBatch, arrow_schema::ArrowError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.end_or_invalid_state {
