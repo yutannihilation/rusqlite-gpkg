@@ -2,185 +2,88 @@
 //!
 //! ## Overview
 //!
-//! - `Gpkg` represents the whole data of GeoPackage data.
-//! - `GpkgLayer` represents a single layer in the data.
-//! - `GpkgFeature` represents a single feature in the layer.
-//! - `Value` represents a single property value related to the feature.
+//! - `Gpkg` represents the GeoPackage connection.
+//! - `GpkgLayer` represents a single layer (feature table).
+//! - `GpkgFeature` represents a single feature (row).
+//! - `Value` represents a single property value.
+//!
+//! Arrow support is available behind the `arrow` feature flag.
 //!
 //! `Gpkg` is the entry point and supports several open modes:
+//! `Gpkg::open_read_only(path)`, `Gpkg::open(path)`, and `Gpkg::open_in_memory()`.
 //!
-//! - `Gpkg::open_read_only(path)`: open an existing file without write access.
-//! - `Gpkg::open(path)`: open a new or existing file for read/write.
-//! - `Gpkg::open_in_memory()`: create a transient in-memory GeoPackage.
-//!
-//! You access a `GpkgLayer` via `Gpkg::get_layer(name)` for existing layers
-//! or `Gpkg::create_layer(...)` for a new layer.
-//!
-//! `GpkgLayer::features()` always allocates a `Vec<GpkgFeature>` for the whole
-//! layer. For large datasets, use `features_batch(batch_size)` to iterate in
-//! chunks and limit peak memory.
+//! `GpkgLayer::features()` loads all features into memory. For large datasets,
+//! use `features_batch(batch_size)` to stream in chunks.
 //!
 //! `GpkgLayer::insert` and `GpkgLayer::update` accept any geometry that implements
-//! `geo_traits::GeometryTrait<T = f64>` (for example `geo_types::Point` or `wkt::Wkt`).
+//! `geo_traits::GeometryTrait<T = f64>` (for example `geo_types::Point`).
 //!
-//! ## Short usage
+//! ## Gpkg
 //!
-//! ```no_run
-//! use rusqlite_gpkg::Gpkg;
-//!
-//! let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-//! let layers = gpkg.list_layers()?;
-//! let layer = gpkg.get_layer(&layers[0])?;
-//! let features = layer.features()?;
-//! let feature = features.first().expect("feature");
-//! let _id = feature.id();
-//! let _geom = feature.geometry()?;
-//! let _name: String = feature
-//!     .property("name")
-//!     .ok_or("missing name")?
-//!     .try_into()?;
-//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
-//! ```
-//!
-//! ## Reader
-//!
-//! ```no_run
-//! use rusqlite_gpkg::{Gpkg, Value};
-//! use wkt::to_wkt::write_geometry;
-//!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let gpkg = Gpkg::open("data.gpkg")?;
-//!     for layer_name in gpkg.list_layers()? {
-//!         let layer = gpkg.get_layer(&layer_name)?;
-//!         for feature in layer.features()? {
-//!             let geom: wkb::reader::Wkb<'_> = feature.geometry()?;
-//!
-//!             // Use wkt to show the context of the geometry
-//!             let mut wkt = String::new();
-//!             write_geometry(&mut wkt, &geom)?;
-//!             println!("{layer_name}: {wkt}");
-//!
-//!             for column in &layer.property_columns {
-//!                 let value = feature.property(&column.name).unwrap_or(Value::Null);
-//!                 println!("  {} = {:?}", column.name, value);
-//!             }
-//!         }
-//!     }
-//!     Ok(())
-//! }
-//! ```
-//!
-//! If you want to process features in batches:
+//! `Gpkg` represents the GeoPackage connection and is the entry point for
+//! opening databases, listing layers, and creating new layers.
 //!
 //! ```no_run
 //! use rusqlite_gpkg::Gpkg;
-//!
 //! let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
 //! let layer = gpkg.get_layer("points")?;
-//! for batch in layer.features_batch(100)? {
-//!     let features = batch?;
-//!     for feature in features {
-//!         let _id = feature.id();
-//!         let _geom = feature.geometry()?;
-//!     }
-//! }
 //! # Ok::<(), rusqlite_gpkg::GpkgError>(())
 //! ```
 //!
-//! `Value` is the crate's owned dynamic value used for feature properties. It
-//! mirrors SQLite's dynamic typing (null, integer, real, text, blob) and is
-//! returned by `GpkgFeature::property` as `Option<Value>`. Convert using
-//! `try_into()` or match directly:
+//! ## GpkgLayer
 //!
-//! ```no_run
-//! # use rusqlite_gpkg::Gpkg;
-//! # let gpkg = Gpkg::open("data.gpkg")?;
-//! # let layer = gpkg.get_layer("points")?;
-//! # let features = layer.features()?;
-//! # let feature = features.first().expect("feature");
-//! let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
-//! let active: bool = feature.property("active").ok_or("missing active")?.try_into()?;
-//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
-//! ```
-//!
-//! The conversion above returns an error if the value is `NULL`. If you want to
-//! handle `NULL`, convert to `Option<T>`; `NULL` becomes `None` and non-null
-//! values become `Some(T)`:
-//!
-//! ```no_run
-//! use rusqlite_gpkg::Value;
-//!
-//! let value = Value::Null;
-//! let maybe_i64: Option<i64> = value.try_into()?;
-//! assert_eq!(maybe_i64, None);
-//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
-//! ```
-//!
-//! ## Writer
+//! `GpkgLayer` models a single feature table. It exposes schema information
+//! (geometry column, property columns) and provides read/write operations.
 //!
 //! ```no_run
 //! use geo_types::Point;
-//! use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, Value, params};
+//! use rusqlite_gpkg::{Gpkg, params};
+//! let layer = Gpkg::open("data.gpkg")?.get_layer("points")?;
+//! layer.insert(Point::new(1.0, 2.0), params!["alpha", 7_i64])?;
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
+//! ```
 //!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let gpkg = Gpkg::open("data.gpkg")?;
+//! ## GpkgFeature
 //!
-//!     let columns = vec![
-//!         ColumnSpec {
-//!             name: "name".to_string(),
-//!             column_type: ColumnType::Varchar,
-//!         },
-//!         ColumnSpec {
-//!             name: "value".to_string(),
-//!             column_type: ColumnType::Integer,
-//!         },
-//!     ];
+//! `GpkgFeature` represents one row. You can read the primary key, geometry, and
+//! property values from it.
 //!
-//!     let layer = gpkg.create_layer(
-//!         "points",
-//!         "geom",
-//!         wkb::reader::GeometryType::Point,
-//!         wkb::reader::Dimension::Xy,
-//!         4326,
-//!         &columns,
-//!     )?;
+//! ```no_run
+//! use rusqlite_gpkg::Gpkg;
+//! let features = Gpkg::open_read_only("data.gpkg")?
+//!     .get_layer("points")?
+//!     .features()?;
+//! let feature = features.first().expect("feature");
+//! let _geom = feature.geometry()?;
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
+//! ```
 //!
+//! ## Value
 //!
-//!     layer.insert(
-//!         Point::new(1.0, 2.0),  // geometry: You can pass whatever object that implements GeometryTrait
-//!         params!["alpha", 7_i64], // other properties: pass references to Value
-//!     )?;
+//! `Value` is the crate's owned dynamic value for feature properties, mirroring
+//! SQLite's dynamic typing. Convert with `try_into()` or match directly.
 //!
-//! // You might notice the `params!` macro in the example above. It is useful when
-//! // you want to pass a fixed list of values.
-//! //
-//! // `params!` accepts `Option<T>` and converts `None` to SQL `NULL`. Because
-//! // `None` has no inherent type, you may need to annotate it:
-//! //
-//! // ```
-//! // layer.insert(
-//! //     Point::new(0.0, 0.0),
-//! //     params![Some(1.0_f64), Option::<i64>::None],
-//! // )?;
-//! // ```
-//! //
-//! // When programmatically constructing parameters, build an iterator of `&Value`
-//! // from owned values:
-//! //
-//! // ```no_run
-//! // use rusqlite_gpkg::Value;
-//! //
-//! // fn convert_to_value(input: &str) -> Value {
-//! //     Value::from(input)
-//! // }
-//! //
-//! // let raw = vec!["alpha", "beta"];
-//! // let values: Vec<Value> = raw.iter().map(|v| convert_to_value(v)).collect();
-//! // layer.insert(Point::new(1.0, 2.0), values.iter())?;
-//! // ```
+//! ```no_run
+//! use rusqlite_gpkg::Gpkg;
+//! let features = Gpkg::open_read_only("data.gpkg")?
+//!     .get_layer("points")?
+//!     .features()?;
+//! let feature = features.first().expect("feature");
+//! let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
+//! ```
 //!
-//!     Ok(())
-//! }
+//! ## Arrow (feature = "arrow")
+//!
+//! The Arrow reader yields `RecordBatch`es for a layer. It borrows the `Gpkg`
+//! because it holds a prepared statement internally.
+//!
+//! ```no_run
+//! use rusqlite_gpkg::{ArrowGpkgReader, Gpkg};
+//! let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+//! let mut reader = ArrowGpkgReader::new(&gpkg, "points", 256)?;
+//! let _batch = reader.next().transpose()?;
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
 //! ```
 mod error;
 mod gpkg;
