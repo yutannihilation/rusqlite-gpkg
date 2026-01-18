@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Iterator that yields `RecordBatch`s` of features from a layer in a Gpkg file.
-pub struct GpkgRecordBatchReader<'a> {
+pub struct ArrowGpkgReader<'a> {
     pub(super) stmt: rusqlite::Statement<'a>,
     pub(super) property_columns: Vec<ColumnSpec>,
     pub(super) geometry_column: String,
@@ -20,13 +20,8 @@ pub struct GpkgRecordBatchReader<'a> {
     pub(super) end_or_invalid_state: bool,
 }
 
-impl<'a> GpkgRecordBatchReader<'a> {
-    pub(crate) fn new(
-        conn: &'a Arc<rusqlite::Connection>,
-        layer_name: &str,
-        batch_size: u32,
-    ) -> crate::error::Result<Self> {
-        let gpkg = Gpkg::new_from_conn(conn.clone(), true)?;
+impl<'a> ArrowGpkgReader<'a> {
+    pub fn new(gpkg: &'a Gpkg, layer_name: &str, batch_size: u32) -> crate::error::Result<Self> {
         let layer = gpkg.get_layer(layer_name)?;
         let columns = layer.property_columns.iter().map(|spec| spec.name.as_str());
         let sql = sql_select_features(
@@ -37,7 +32,7 @@ impl<'a> GpkgRecordBatchReader<'a> {
             Some(batch_size),
         );
 
-        let stmt = conn.prepare(&sql)?;
+        let stmt = gpkg.conn.prepare(&sql)?;
         Ok(Self::new_inner(stmt, &layer, batch_size))
     }
 
@@ -58,7 +53,7 @@ impl<'a> GpkgRecordBatchReader<'a> {
     }
 }
 
-impl<'a> GpkgRecordBatchReader<'a> {
+impl<'a> ArrowGpkgReader<'a> {
     pub fn get_arrow_schema(&self) -> SchemaRef {
         let mut fields: Vec<FieldRef> = self
             .property_columns
@@ -139,7 +134,7 @@ impl<'a> GpkgRecordBatchReader<'a> {
     }
 }
 
-impl<'a> Iterator for GpkgRecordBatchReader<'a> {
+impl<'a> Iterator for ArrowGpkgReader<'a> {
     type Item = crate::error::Result<arrow_array::RecordBatch>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -307,7 +302,7 @@ fn wkb_geometry_builder(srs_id: String, batch_size: usize) -> WkbBuilder<i32> {
 
 #[cfg(all(test, feature = "arrow"))]
 mod tests {
-    use super::GpkgRecordBatchReader;
+    use super::ArrowGpkgReader;
     use crate::Result;
     use crate::gpkg::Gpkg;
     use crate::params;
@@ -360,7 +355,7 @@ mod tests {
         layer.insert(first_geom, params![true, "alpha", 1.25, 7])?;
         layer.insert(second_geom, params![false, "beta", 2.5, 9])?;
 
-        let mut iter: GpkgRecordBatchReader<'_> = layer.features_record_batch(10)?;
+        let mut iter = ArrowGpkgReader::new(&gpkg, &layer.layer_name, 10)?;
         let batch = iter.next().transpose()?.expect("first batch");
 
         let schema = batch.schema();
@@ -438,7 +433,8 @@ mod tests {
 
         let mut values = Vec::new();
         let mut batch_sizes = Vec::new();
-        for batch in layer.features_record_batch(2)? {
+        let iter = ArrowGpkgReader::new(&gpkg, &layer.layer_name, 2)?;
+        for batch in iter {
             let batch = batch?;
             batch_sizes.push(batch.num_rows());
             let array = batch

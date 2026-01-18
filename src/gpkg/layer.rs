@@ -1,7 +1,5 @@
 use crate::Value;
 use crate::error::{GpkgError, Result};
-#[cfg(feature = "arrow")]
-use crate::gpkg::arrow::reader::GpkgRecordBatchReader;
 use crate::ogc_sql::{sql_delete_all, sql_insert_feature, sql_select_features};
 use crate::types::ColumnSpec;
 use geo_traits::GeometryTrait;
@@ -117,25 +115,6 @@ impl GpkgLayer {
         let stmt = self.conn.prepare(&sql)?;
 
         Ok(GpkgFeatureBatchIterator::new(stmt, &self, batch_size))
-    }
-
-    #[cfg(feature = "arrow")]
-    pub fn features_record_batch<'a>(
-        &'a self,
-        batch_size: u32,
-    ) -> Result<GpkgRecordBatchReader<'a>> {
-        let columns = self.property_columns.iter().map(|spec| spec.name.as_str());
-        let sql = sql_select_features(
-            &self.layer_name,
-            &self.geometry_column,
-            &self.primary_key_column,
-            columns,
-            Some(batch_size),
-        );
-
-        let stmt = self.conn.prepare(&sql)?;
-
-        Ok(GpkgRecordBatchReader::new_inner(stmt, &self, batch_size))
     }
 
     /// Remove all rows from the layer.
@@ -525,7 +504,7 @@ mod tests {
         )?;
 
         let (geometry_type_name, srs_id, z, m): (String, u32, i8, i8) =
-            gpkg.connection().query_row(
+            gpkg.conn.query_row(
                 "SELECT geometry_type_name, srs_id, z, m FROM gpkg_geometry_columns WHERE table_name = 'points'",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),

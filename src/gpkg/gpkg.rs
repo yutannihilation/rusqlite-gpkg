@@ -19,8 +19,8 @@ use super::layer::GpkgLayer;
 #[derive(Debug)]
 /// GeoPackage connection wrapper for reading (and later writing) layers.
 pub struct Gpkg {
-    conn: Arc<rusqlite::Connection>,
-    read_only: bool,
+    pub(crate) conn: Arc<rusqlite::Connection>,
+    pub(crate) read_only: bool,
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -400,11 +400,6 @@ impl Gpkg {
             conn: Arc::new(conn),
             read_only: false,
         })
-    }
-
-    #[cfg(test)]
-    pub(crate) fn connection(&self) -> &rusqlite::Connection {
-        &self.conn.as_ref()
     }
 
     /// Resolve the table columns and map SQLite types.
