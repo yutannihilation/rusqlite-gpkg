@@ -1,11 +1,21 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `src/lib.rs` exposes the library entry point and shared functions (e.g., `Gpkg`).
-- `src/gpkg.rs` implements core GeoPackage parsing/reading logic.
-- `src/ogc_sql.rs` holds GeoPackage SQL schema constants.
-- `src/types.rs` defines shared GeoPackage types.
-- `src/bin/read_gpkg.rs` is a small CLI binary for reading a sample GeoPackage.
+- `src/lib.rs` exposes the library entry point, public re-exports, and crate-level docs.
+- `src/error.rs` defines `GpkgError` and the crate `Result` type.
+- `src/types.rs` defines shared GeoPackage types (`Value`, column specs, metadata).
+- `src/conversions.rs` handles conversions between rusqlite values, GeoPackage values, and WKB.
+- `src/ogc_sql.rs` holds GeoPackage SQL schema constants and query builders.
+- `src/sql_functions.rs` registers SQLite spatial helper functions.
+- `src/gpkg/` implements the core GeoPackage API:
+  - `src/gpkg/gpkg.rs` manages connections and high-level Gpkg operations.
+  - `src/gpkg/layer.rs` models layers and layer-level CRUD.
+  - `src/gpkg/feature.rs` models features and feature-level access.
+  - `src/gpkg/batch_iterator.rs` provides batched feature iteration.
+- `src/arrow/` provides the optional Arrow reader integration (`ArrowGpkgReader`) behind the `arrow` feature.
+- `src/bin/read_gpkg.rs` reads and prints a sample GeoPackage.
+- `src/bin/write_gpkg.rs` writes a sample GeoPackage.
+- `src/test/test_generated.gpkg` is the sample GeoPackage used by CLI/test workflows.
 
 ## Build, Test, and Development Commands
 - `cargo build`: compile the library and binaries.
