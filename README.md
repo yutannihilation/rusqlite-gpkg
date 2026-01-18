@@ -16,6 +16,8 @@ GeoPackage reader/writer built on top of [rusqlite](https://crates.io/crates/rus
 - `GpkgFeature` represents a single feature in the layer.
 - `Value` represents a single property value related to the feature.
 
+Arrow support is available behind the `arrow` feature flag.
+
 The library focuses on simple, explicit flows. You control how layers are created
 and which property columns are present.
 
@@ -206,12 +208,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for feature in layer.features()? {
             let geom = feature.geometry()?;
 
-            // Use wkt to show the context of the geometry
+            // Convert geometry to WKT for display.
             let mut wkt = String::new();
             write_geometry(&mut wkt, &geom)?;
             println!("{layer_name}: {wkt}");
 
             for column in &layer.property_columns {
+                // Property values are returned as `Value`.
                 let value = feature.property(&column.name).unwrap_or(Value::Null);
                 println!("  {} = {:?}", column.name, value);
             }
@@ -250,11 +253,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &columns,
     )?;
 
+    // Insert a feature with geometry and property values.
     layer.insert(
         Point::new(1.0, 2.0),    // geometry: You can pass whatever object that implements GeometryTrait
         params!["alpha", 7_i64], // other properties: pass references to Value
     )?;
 
+    Ok(())
+}
+```
+
+### Arrow reader
+
+```rs
+use rusqlite_gpkg::{ArrowGpkgReader, Gpkg};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Open an existing GeoPackage and stream Arrow batches.
+    let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    let mut reader = ArrowGpkgReader::new(&gpkg, "points", 1024)?;
+    while let Some(batch) = reader.next() {
+        let batch = batch?;
+        // Use the Arrow RecordBatch API.
+        println!("rows = {}", batch.num_rows());
+    }
+    Ok(())
+}
+```
+
+### Arrow geometry handling
+
+```rs
+use geoarrow_array::array::WkbArray;
+use geoarrow_array::GeoArrowArrayAccessor;
+use rusqlite_gpkg::{ArrowGpkgReader, Gpkg};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    let mut reader = ArrowGpkgReader::new(&gpkg, "points", 256)?;
+    if let Some(batch) = reader.next() {
+        let batch = batch?;
+        let geom_index = batch.num_columns() - 1;
+        let schema = batch.schema();
+        let geom_field = schema.field(geom_index).as_ref();
+        let geom_array =
+            WkbArray::try_from((batch.column(geom_index).as_ref(), geom_field))?;
+
+        // Access raw WKB bytes from the geometry column.
+        let wkb = geom_array.value(0)?;
+        let _bytes: &[u8] = wkb.buf();
+    }
     Ok(())
 }
 ```
