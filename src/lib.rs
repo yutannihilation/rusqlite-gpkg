@@ -7,7 +7,7 @@
 //! - `GpkgFeature` represents a single feature (row).
 //! - `Value` represents a single property value.
 //!
-//! Arrow support is available behind the `arrow` feature flag.
+//! Apache Arrow support is available behind the `arrow` feature flag.
 //!
 //! `Gpkg` is the entry point and supports several open modes:
 //! `Gpkg::open_read_only(path)`, `Gpkg::open(path)`, and `Gpkg::open_in_memory()`.
@@ -17,6 +17,19 @@
 //!
 //! `GpkgLayer::insert` and `GpkgLayer::update` accept any geometry that implements
 //! `geo_traits::GeometryTrait<T = f64>` (for example `geo_types::Point`).
+//!
+//! ## Browser usage (to_bytes / from_bytes)
+//!
+//! In browser environments, file access is often unavailable. Use `to_bytes()` to
+//! serialize an in-memory GeoPackage and `from_bytes()` to restore it later.
+//!
+//! ```no_run
+//! use rusqlite_gpkg::Gpkg;
+//! let gpkg = Gpkg::open_in_memory()?;
+//! let bytes = gpkg.to_bytes()?;
+//! let _restored = Gpkg::from_bytes(&bytes)?;
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
+//! ```
 //!
 //! ## Gpkg
 //!
