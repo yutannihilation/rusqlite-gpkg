@@ -137,23 +137,6 @@ impl<'a> GpkgLayer<'a> {
         Ok(GpkgFeatureRecordBatchIterator::new(stmt, &self, batch_size))
     }
 
-    fn features_inner(&self, sql: &str) -> Result<Vec<GpkgFeature>> {
-        let mut stmt = self.conn.connection().prepare(sql)?;
-        let features = stmt
-            .query_map([], |row| {
-                row_to_feature(
-                    row,
-                    &self.property_columns,
-                    &self.geometry_column,
-                    &self.primary_key_column,
-                    &self.property_index_by_name,
-                )
-            })?
-            .collect::<rusqlite::Result<Vec<GpkgFeature>>>()?;
-
-        Ok(features)
-    }
-
     /// Remove all rows from the layer.
     ///
     /// Example:
