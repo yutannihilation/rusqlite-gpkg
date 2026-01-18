@@ -1,7 +1,7 @@
 use crate::Value;
 use crate::error::{GpkgError, Result};
 #[cfg(feature = "arrow")]
-use crate::gpkg::arrow::GpkgFeatureRecordBatchIterator;
+use crate::gpkg::arrow::reader::GpkgFeatureRecordBatchIterator;
 use crate::ogc_sql::{sql_delete_all, sql_insert_feature, sql_select_features};
 use crate::types::ColumnSpec;
 use geo_traits::GeometryTrait;
