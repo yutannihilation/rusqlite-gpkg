@@ -16,7 +16,8 @@ GeoPackage reader/writer built on top of [rusqlite](https://crates.io/crates/rus
 - `GpkgFeature` represents a single feature in the layer.
 - `Value` represents a single property value related to the feature.
 
-Arrow support is available behind the `arrow` feature flag.
+Apache Arrow support is available behind the `arrow` feature flag.
+You can find some example codes in the bottom of this README.
 
 The library focuses on simple, explicit flows. You control how layers are created
 and which property columns are present.

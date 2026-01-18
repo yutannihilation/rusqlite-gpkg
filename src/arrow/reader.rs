@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow_array::ArrayRef;
+use arrow_array::{ArrayRef, RecordBatchReader};
 use arrow_schema::{FieldRef, SchemaRef};
 use geoarrow_array::{GeoArrowArray, builder::WkbBuilder};
 
@@ -16,13 +16,13 @@ use crate::{
 /// The reader holds a prepared `rusqlite::Statement`, so it borrows the `Gpkg`
 /// that created it and must not outlive that `Gpkg`.
 pub struct ArrowGpkgReader<'a> {
-    pub(super) stmt: rusqlite::Statement<'a>,
-    pub(super) property_columns: Vec<ColumnSpec>,
-    pub(super) geometry_column: String,
-    pub(super) srs_id: u32,
-    pub(super) batch_size: usize,
-    pub(super) offset: u32,
-    pub(super) end_or_invalid_state: bool,
+    stmt: rusqlite::Statement<'a>,
+    property_columns: Vec<ColumnSpec>,
+    srs_id: u32,
+    batch_size: usize,
+    offset: u32,
+    end_or_invalid_state: bool,
+    schema_ref: SchemaRef,
 }
 
 impl<'a> ArrowGpkgReader<'a> {
@@ -53,22 +53,29 @@ impl<'a> ArrowGpkgReader<'a> {
         layer: &GpkgLayer,
         batch_size: u32,
     ) -> Self {
+        let schema_ref = Self::construct_arrow_schema(
+            &layer.property_columns,
+            &layer.geometry_column,
+            &layer.srs_id.to_string(),
+        );
+
         Self {
             stmt,
             batch_size: batch_size as usize,
             property_columns: layer.property_columns.clone(),
-            geometry_column: layer.geometry_column.clone(),
             srs_id: layer.srs_id.clone(),
             offset: 0,
             end_or_invalid_state: false,
+            schema_ref,
         }
     }
-}
 
-impl<'a> ArrowGpkgReader<'a> {
-    pub fn get_arrow_schema(&self) -> SchemaRef {
-        let mut fields: Vec<FieldRef> = self
-            .property_columns
+    fn construct_arrow_schema(
+        property_columns: &[ColumnSpec],
+        geometry_column: &str,
+        srs_id: &str,
+    ) -> SchemaRef {
+        let mut fields: Vec<FieldRef> = property_columns
             .iter()
             .map(|col| {
                 let field = match col.column_type {
@@ -85,7 +92,7 @@ impl<'a> ArrowGpkgReader<'a> {
                         arrow_schema::Field::new(&col.name, arrow_schema::DataType::Int64, true)
                     }
                     crate::ColumnType::Geometry => {
-                        wkb_geometry_field(&col.name, self.srs_id.to_string())
+                        wkb_geometry_field(&col.name, srs_id.to_string())
                     }
                 };
 
@@ -94,8 +101,8 @@ impl<'a> ArrowGpkgReader<'a> {
             .collect();
 
         fields.push(Arc::new(wkb_geometry_field(
-            &self.geometry_column,
-            self.srs_id.to_string(),
+            geometry_column,
+            srs_id.to_string(),
         )));
 
         Arc::new(arrow_schema::Schema::new(fields))
@@ -128,7 +135,7 @@ impl<'a> ArrowGpkgReader<'a> {
                 .collect();
 
         GpkgRecordBatchBuilder {
-            schema_ref: self.get_arrow_schema(),
+            schema_ref: self.schema_ref.clone(),
             builders,
             geo_builder: wkb_geometry_builder(self.srs_id.to_string(), self.batch_size),
         }
@@ -177,6 +184,12 @@ impl<'a> Iterator for ArrowGpkgReader<'a> {
         self.offset += result_size as u32;
 
         Some(Ok(features))
+    }
+}
+
+impl<'a> RecordBatchReader for ArrowGpkgReader<'a> {
+    fn schema(&self) -> SchemaRef {
+        self.schema_ref.clone()
     }
 }
 
