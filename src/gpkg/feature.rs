@@ -106,7 +106,7 @@ impl GpkgFeature {
 
 /// Strip GeoPackage header and envelope bytes to access raw WKB.
 // cf. https://www.geopackage.org/spec140/index.html#gpb_format
-pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> Result<Wkb<'a>> {
+pub(crate) fn gpkg_geometry_to_wkb_bytes<'a>(b: &'a [u8]) -> Result<&'a [u8]> {
     let flags = b[3];
     let envelope_size: usize = match flags & 0b00001110 {
         0b00000000 => 0,  // no envelope
@@ -120,7 +120,11 @@ pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> Result<Wkb<'a>> {
     };
     let offset = 8 + envelope_size;
 
-    Ok(Wkb::try_new(&b[offset..])?)
+    Ok(&b[offset..])
+}
+
+pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> Result<Wkb<'a>> {
+    Ok(Wkb::try_new(gpkg_geometry_to_wkb_bytes(b)?)?)
 }
 
 // cf. https://www.geopackage.org/spec140/index.html#gpb_format

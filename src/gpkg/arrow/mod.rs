@@ -4,7 +4,7 @@ use arrow_array::ArrayRef;
 use arrow_schema::{FieldRef, SchemaRef};
 use geoarrow_array::{GeoArrowArray, builder::WkbBuilder};
 
-use crate::{ColumnSpec, GpkgError, GpkgLayer, gpkg::gpkg_geometry_to_wkb};
+use crate::{ColumnSpec, GpkgError, GpkgLayer, gpkg::feature::gpkg_geometry_to_wkb_bytes};
 
 /// Iterator that yields `RecordBatch`s` of features from a layer.
 pub struct GpkgFeatureRecordBatchIterator<'a> {
@@ -172,7 +172,7 @@ impl GpkgArrayBuilder {
                 builder.append_null();
             }
             (GpkgArrayBuilder::Geometry(builder), rusqlite::types::Value::Null) => {
-                builder.push_wkb(None);
+                builder.push_wkb(None).unwrap();
             }
             // non-null value
             (GpkgArrayBuilder::Boolean(builder), rusqlite::types::Value::Integer(i)) => {
@@ -188,8 +188,10 @@ impl GpkgArrayBuilder {
                 builder.append_value(i);
             }
             (GpkgArrayBuilder::Geometry(builder), rusqlite::types::Value::Blob(b)) => {
-                let wkb = gpkg_geometry_to_wkb(&b)?;
-                builder.push_wkb(Some(wkb.buf())).unwrap();
+                let wkb_bytes = gpkg_geometry_to_wkb_bytes(&b)?;
+                builder
+                    .push_wkb(Some(wkb_bytes))
+                    .map_err(|e| GpkgError::Message(format!("{e:?}")))?;
             }
             _ => unreachable!(),
         }
@@ -216,8 +218,10 @@ impl GpkgRecordBatchBuilder {
 
         match row.get::<usize, rusqlite::types::Value>(n) {
             Ok(rusqlite::types::Value::Blob(b)) => {
-                let wkb = gpkg_geometry_to_wkb(&b)?;
-                self.geo_builder.push_wkb(Some(wkb.buf())).unwrap();
+                let wkb_bytes = gpkg_geometry_to_wkb_bytes(&b)?;
+                self.geo_builder
+                    .push_wkb(Some(wkb_bytes))
+                    .map_err(|e| GpkgError::Message(format!("{e:?}")))?;
             }
             Ok(rusqlite::types::Value::Null) => {
                 self.geo_builder.push_wkb(None).unwrap();
