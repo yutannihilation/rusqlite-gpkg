@@ -79,11 +79,17 @@
 //! because it holds a prepared statement internally.
 //!
 //! ```no_run
+//! # #[cfg(feature = "arrow")]
 //! use rusqlite_gpkg::{ArrowGpkgReader, Gpkg};
-//! let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
-//! let mut reader = ArrowGpkgReader::new(&gpkg, "points", 256)?;
-//! let _batch = reader.next().transpose()?;
-//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
+//! # #[cfg(feature = "arrow")]
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+//!     let mut reader = ArrowGpkgReader::new(&gpkg, "points", 256)?;
+//!     let _batch = reader.next().transpose()?;
+//!     Ok(())
+//! }
+//! # #[cfg(not(feature = "arrow"))]
+//! fn main() {}
 //! ```
 mod error;
 mod gpkg;
