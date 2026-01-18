@@ -5,7 +5,7 @@ use crate::types::ColumnSpec;
 use geo_traits::GeometryTrait;
 use rusqlite::{params_from_iter, types::Type};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 use wkb::reader::Wkb;
 
 use super::{GpkgFeature, wkb_to_gpkg_geometry};
@@ -15,7 +15,7 @@ use crate::GpkgFeatureBatchIterator;
 #[derive(Debug)]
 /// A GeoPackage layer with geometry metadata and column specs.
 pub struct GpkgLayer {
-    pub(super) conn: Arc<rusqlite::Connection>,
+    pub(super) conn: Rc<rusqlite::Connection>,
     pub(super) is_read_only: bool,
     pub layer_name: String,
     pub geometry_column: String,
@@ -24,7 +24,7 @@ pub struct GpkgLayer {
     pub geometry_dimension: wkb::reader::Dimension,
     pub srs_id: u32,
     pub property_columns: Vec<ColumnSpec>,
-    pub(super) property_index_by_name: Arc<HashMap<String, usize>>,
+    pub(super) property_index_by_name: Rc<HashMap<String, usize>>,
     pub(super) insert_sql: String,
     pub(super) update_sql: String,
 }
@@ -114,7 +114,7 @@ impl GpkgLayer {
 
         let stmt = self.conn.prepare(&sql)?;
 
-        Ok(GpkgFeatureBatchIterator::new(stmt, &self, batch_size))
+        Ok(GpkgFeatureBatchIterator::new(stmt, self, batch_size))
     }
 
     /// Remove all rows from the layer.
@@ -302,7 +302,7 @@ pub(crate) fn row_to_feature(
     property_columns: &[ColumnSpec],
     geometry_column: &str,
     primary_key_column: &str,
-    property_index_by_name: &Arc<HashMap<String, usize>>,
+    property_index_by_name: &Rc<HashMap<String, usize>>,
 ) -> std::result::Result<GpkgFeature, rusqlite::Error> {
     let mut id: Option<i64> = None;
     let mut geometry: Option<Vec<u8>> = None;

@@ -12,14 +12,14 @@ use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, GpkgLayerMetadata};
 use rusqlite::OpenFlags;
 use std::path::Path;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use super::layer::GpkgLayer;
 
 #[derive(Debug)]
 /// GeoPackage connection wrapper for reading (and later writing) layers.
 pub struct Gpkg {
-    pub(crate) conn: Arc<rusqlite::Connection>,
+    pub(crate) conn: Rc<rusqlite::Connection>,
     pub(crate) read_only: bool,
 }
 
@@ -41,7 +41,7 @@ fn rusqlite_open_path<P: AsRef<Path>>(
 }
 
 impl Gpkg {
-    pub(crate) fn new_from_conn(conn: Arc<rusqlite::Connection>, read_only: bool) -> Result<Self> {
+    pub(crate) fn new_from_conn(conn: Rc<rusqlite::Connection>, read_only: bool) -> Result<Self> {
         register_spatial_functions(&conn)?;
         Ok(Self { conn, read_only })
     }
@@ -57,7 +57,7 @@ impl Gpkg {
     /// ```
     pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = rusqlite_open_path(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        Self::new_from_conn(Arc::new(conn), true)
+        Self::new_from_conn(Rc::new(conn), true)
     }
 
     /// Open a new or existing GeoPackage in read-write mode.
@@ -80,7 +80,7 @@ impl Gpkg {
             initialize_gpkg(&conn)?;
         }
 
-        Self::new_from_conn(Arc::new(conn), false)
+        Self::new_from_conn(Rc::new(conn), false)
     }
 
     /// Create a new GeoPackage in memory.
@@ -97,7 +97,7 @@ impl Gpkg {
 
         initialize_gpkg(&conn)?;
 
-        Self::new_from_conn(Arc::new(conn), false)
+        Self::new_from_conn(Rc::new(conn), false)
     }
 
     /// Expert-only: register a spatial reference system in gpkg_spatial_ref_sys.
@@ -206,7 +206,7 @@ impl Gpkg {
             &other_columns,
         );
         let property_index_by_name =
-            Arc::new(GpkgLayer::build_property_index_by_name(&other_columns));
+            Rc::new(GpkgLayer::build_property_index_by_name(&other_columns));
 
         Ok(GpkgLayer {
             conn: self.conn.clone(),
@@ -314,7 +314,7 @@ impl Gpkg {
         let update_sql =
             GpkgLayer::build_update_sql(layer_name, geometry_column, "fid", other_column_specs);
         let property_index_by_name =
-            Arc::new(GpkgLayer::build_property_index_by_name(other_column_specs));
+            Rc::new(GpkgLayer::build_property_index_by_name(other_column_specs));
 
         Ok(GpkgLayer {
             conn: self.conn.clone(),
@@ -397,7 +397,7 @@ impl Gpkg {
         let reader = std::io::Cursor::new(data_ref);
         conn.deserialize_read_exact("main", reader, data_ref.len(), false)?;
         Ok(Self {
-            conn: Arc::new(conn),
+            conn: Rc::new(conn),
             read_only: false,
         })
     }

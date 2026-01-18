@@ -1,9 +1,8 @@
 use crate::gpkg::GpkgFeature;
 use crate::types::ColumnSpec;
 use crate::{GpkgLayer, Result};
-use rusqlite;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 
 /// Iterator that yields batches of features from a layer.
 ///
@@ -15,7 +14,7 @@ pub struct GpkgFeatureBatchIterator<'a> {
     pub(super) property_columns: Vec<ColumnSpec>,
     pub(super) geometry_column: String,
     pub(super) primary_key_column: String,
-    pub(super) property_index_by_name: Arc<HashMap<String, usize>>,
+    pub(super) property_index_by_name: Rc<HashMap<String, usize>>,
     pub(super) batch_size: u32,
     pub(super) offset: u32,
     pub(super) end_or_invalid_state: bool,
