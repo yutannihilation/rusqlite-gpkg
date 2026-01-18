@@ -448,12 +448,14 @@ impl<'a> rusqlite::ToSql for SqlParam<'a> {
 pub(crate) fn params_from_geom_and_properties<'p, P>(
     geom: Vec<u8>,
     properties: P,
+    id: Option<i64>,
 ) -> impl rusqlite::Params
 where
     P: IntoIterator<Item = &'p Value>,
 {
     let params = std::iter::once(SqlParam::Owned(Value::Geometry(geom)))
-        .chain(properties.into_iter().map(SqlParam::Borrowed));
+        .chain(properties.into_iter().map(SqlParam::Borrowed))
+        .chain(id.into_iter().map(|i| SqlParam::Owned(Value::Integer(i))));
     rusqlite::params_from_iter(params)
 }
 

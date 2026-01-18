@@ -3,8 +3,7 @@ use crate::error::{GpkgError, Result};
 use crate::ogc_sql::{sql_delete_all, sql_insert_feature, sql_select_features};
 use crate::types::{ColumnSpec, params_from_geom_and_properties};
 use geo_traits::GeometryTrait;
-use rusqlite::ToSql;
-use rusqlite::{params_from_iter, types::Type};
+use rusqlite::types::Type;
 use std::collections::HashMap;
 use std::rc::Rc;
 use wkb::reader::Wkb;
@@ -154,7 +153,7 @@ impl GpkgLayer {
         P: IntoIterator<Item = &'p Value>,
     {
         let geom = self.geom_from_geometry(geometry)?;
-        let params = params_from_geom_and_properties(geom, properties);
+        let params = params_from_geom_and_properties(geom, properties, None);
         let mut stmt = self.conn.prepare_cached(&self.insert_sql)?;
         stmt.execute(params)?;
         Ok(())
@@ -178,7 +177,7 @@ impl GpkgLayer {
         P: IntoIterator<Item = &'p Value>,
     {
         let geom = self.geom_from_geometry(geometry)?;
-        let params = params_from_geom_and_properties(geom, properties);
+        let params = params_from_geom_and_properties(geom, properties, Some(id));
         let mut stmt = self.conn.prepare_cached(&self.update_sql)?;
         stmt.execute(params)?;
         Ok(())
