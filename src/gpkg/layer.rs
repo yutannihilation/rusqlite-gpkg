@@ -1,7 +1,7 @@
 use crate::Value;
 use crate::error::{GpkgError, Result};
 #[cfg(feature = "arrow")]
-use crate::gpkg::arrow::reader::GpkgFeatureRecordBatchIterator;
+use crate::gpkg::arrow::reader::GpkgRecordBatchReader;
 use crate::ogc_sql::{sql_delete_all, sql_insert_feature, sql_select_features};
 use crate::types::ColumnSpec;
 use geo_traits::GeometryTrait;
@@ -119,10 +119,7 @@ impl<'a> GpkgLayer<'a> {
     }
 
     #[cfg(feature = "arrow")]
-    pub fn features_record_batch(
-        &self,
-        batch_size: u32,
-    ) -> Result<GpkgFeatureRecordBatchIterator<'a>> {
+    pub fn features_record_batch(&self, batch_size: u32) -> Result<GpkgRecordBatchReader<'a>> {
         let columns = self.property_columns.iter().map(|spec| spec.name.as_str());
         let sql = sql_select_features(
             &self.layer_name,
@@ -134,7 +131,7 @@ impl<'a> GpkgLayer<'a> {
 
         let stmt = self.conn.connection().prepare(&sql)?;
 
-        Ok(GpkgFeatureRecordBatchIterator::new(stmt, &self, batch_size))
+        Ok(GpkgRecordBatchReader::new_inner(stmt, &self, batch_size))
     }
 
     /// Remove all rows from the layer.

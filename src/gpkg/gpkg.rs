@@ -19,7 +19,7 @@ use super::layer::GpkgLayer;
 #[derive(Debug)]
 /// GeoPackage connection wrapper for reading (and later writing) layers.
 pub struct Gpkg {
-    conn: rusqlite::Connection,
+    conn: Arc<rusqlite::Connection>,
     read_only: bool,
 }
 
@@ -41,7 +41,7 @@ fn rusqlite_open_path<P: AsRef<Path>>(
 }
 
 impl Gpkg {
-    fn open_inner(conn: rusqlite::Connection, read_only: bool) -> Result<Self> {
+    pub(crate) fn new_from_conn(conn: Arc<rusqlite::Connection>, read_only: bool) -> Result<Self> {
         register_spatial_functions(&conn)?;
         Ok(Self { conn, read_only })
     }
@@ -57,7 +57,7 @@ impl Gpkg {
     /// ```
     pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = rusqlite_open_path(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        Self::open_inner(conn, true)
+        Self::new_from_conn(Arc::new(conn), true)
     }
 
     /// Open a new or existing GeoPackage in read-write mode.
@@ -80,7 +80,7 @@ impl Gpkg {
             initialize_gpkg(&conn)?;
         }
 
-        Self::open_inner(conn, false)
+        Self::new_from_conn(Arc::new(conn), false)
     }
 
     /// Create a new GeoPackage in memory.
@@ -97,7 +97,7 @@ impl Gpkg {
 
         initialize_gpkg(&conn)?;
 
-        Self::open_inner(conn, false)
+        Self::new_from_conn(Arc::new(conn), false)
     }
 
     /// Expert-only: register a spatial reference system in gpkg_spatial_ref_sys.
@@ -395,13 +395,13 @@ impl Gpkg {
         let reader = std::io::Cursor::new(data_ref);
         conn.deserialize_read_exact("main", reader, data_ref.len(), false)?;
         Ok(Self {
-            conn,
+            conn: Arc::new(conn),
             read_only: false,
         })
     }
 
     pub(crate) fn connection(&self) -> &rusqlite::Connection {
-        &self.conn
+        &self.conn.as_ref()
     }
 
     pub(crate) fn is_read_only(&self) -> bool {
