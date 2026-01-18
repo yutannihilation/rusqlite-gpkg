@@ -428,6 +428,37 @@ impl<'a> TryFrom<&'a Value> for Wkb<'a> {
     }
 }
 
+// When inserting, geom is a owned value, while the rest are borrowed value.
+// This is a utility to handle these transparently.
+enum SqlParam<'a> {
+    Owned(Value),
+    Borrowed(&'a Value),
+}
+
+impl<'a> rusqlite::ToSql for SqlParam<'a> {
+    #[inline]
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        match self {
+            SqlParam::Owned(value) => value.to_sql(),
+            SqlParam::Borrowed(value) => value.to_sql(),
+        }
+    }
+}
+
+pub(crate) fn params_from_geom_and_properties<'p, P>(
+    geom: Vec<u8>,
+    properties: P,
+    id: Option<i64>,
+) -> impl rusqlite::Params
+where
+    P: IntoIterator<Item = &'p Value>,
+{
+    let params = std::iter::once(SqlParam::Owned(Value::Geometry(geom)))
+        .chain(properties.into_iter().map(SqlParam::Borrowed))
+        .chain(id.into_iter().map(|i| SqlParam::Owned(Value::Integer(i))));
+    rusqlite::params_from_iter(params)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{GpkgError, Value};

@@ -1,9 +1,9 @@
 use crate::Value;
 use crate::error::{GpkgError, Result};
 use crate::ogc_sql::{sql_delete_all, sql_insert_feature, sql_select_features};
-use crate::types::ColumnSpec;
+use crate::types::{ColumnSpec, params_from_geom_and_properties};
 use geo_traits::GeometryTrait;
-use rusqlite::{params_from_iter, types::Type};
+use rusqlite::types::Type;
 use std::collections::HashMap;
 use std::rc::Rc;
 use wkb::reader::Wkb;
@@ -153,27 +153,9 @@ impl GpkgLayer {
         P: IntoIterator<Item = &'p Value>,
     {
         let geom = self.geom_from_geometry(geometry)?;
-
-        enum SqlParam<'a> {
-            Owned(Value),
-            Borrowed(&'a Value),
-        }
-
-        impl<'a> rusqlite::ToSql for SqlParam<'a> {
-            #[inline]
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-                match self {
-                    SqlParam::Owned(value) => value.to_sql(),
-                    SqlParam::Borrowed(value) => value.to_sql(),
-                }
-            }
-        }
-
-        let params = std::iter::once(SqlParam::Owned(Value::Geometry(geom)))
-            .chain(properties.into_iter().map(SqlParam::Borrowed));
-
+        let params = params_from_geom_and_properties(geom, properties, None);
         let mut stmt = self.conn.prepare_cached(&self.insert_sql)?;
-        stmt.execute(params_from_iter(params))?;
+        stmt.execute(params)?;
         Ok(())
     }
 
@@ -195,28 +177,9 @@ impl GpkgLayer {
         P: IntoIterator<Item = &'p Value>,
     {
         let geom = self.geom_from_geometry(geometry)?;
-
-        enum SqlParam<'a> {
-            Owned(Value),
-            Borrowed(&'a Value),
-        }
-
-        impl<'a> rusqlite::ToSql for SqlParam<'a> {
-            #[inline]
-            fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
-                match self {
-                    SqlParam::Owned(value) => value.to_sql(),
-                    SqlParam::Borrowed(value) => value.to_sql(),
-                }
-            }
-        }
-
-        let params = std::iter::once(SqlParam::Owned(Value::Geometry(geom)))
-            .chain(properties.into_iter().map(SqlParam::Borrowed))
-            .chain(std::iter::once(SqlParam::Owned(Value::Integer(id))));
-
+        let params = params_from_geom_and_properties(geom, properties, Some(id));
         let mut stmt = self.conn.prepare_cached(&self.update_sql)?;
-        stmt.execute(params_from_iter(params))?;
+        stmt.execute(params)?;
         Ok(())
     }
 
