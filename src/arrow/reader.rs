@@ -180,7 +180,7 @@ impl<'a> Iterator for ArrowGpkgReader<'a> {
     }
 }
 
-pub enum GpkgArrayBuilder {
+enum GpkgArrayBuilder {
     Boolean(arrow_array::builder::BooleanBuilder),
     Varchar(arrow_array::builder::StringBuilder),
     Double(arrow_array::builder::Float64Builder),
@@ -234,7 +234,7 @@ impl GpkgArrayBuilder {
     }
 }
 
-pub struct GpkgRecordBatchBuilder {
+struct GpkgRecordBatchBuilder {
     pub(crate) schema_ref: SchemaRef,
     pub(crate) builders: Vec<GpkgArrayBuilder>,
     pub(crate) geo_builder: WkbBuilder<i32>,
