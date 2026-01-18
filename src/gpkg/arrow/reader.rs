@@ -282,8 +282,6 @@ impl GpkgRecordBatchBuilder {
     }
 }
 
-// TODO: some iterator returns record batch
-
 fn wkb_geometry_field(field_name: &str, srs_id: String) -> arrow_schema::Field {
     let geoarrow_metadata =
         geoarrow_schema::Metadata::new(geoarrow_schema::Crs::from_srid(srs_id.clone()), None);
