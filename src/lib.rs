@@ -186,12 +186,15 @@ mod error;
 mod gpkg;
 mod sql_functions;
 
+#[cfg(feature = "arrow")]
+mod arrow;
+
 mod conversions;
 mod ogc_sql;
 mod types;
 
 #[cfg(feature = "arrow")]
-pub use gpkg::arrow::reader::ArrowGpkgReader;
+pub use arrow::reader::ArrowGpkgReader;
 
 pub use error::{GpkgError, Result};
 pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureBatchIterator, GpkgLayer};

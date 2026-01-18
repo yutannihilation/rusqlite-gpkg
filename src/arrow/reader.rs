@@ -5,7 +5,7 @@ use arrow_schema::{FieldRef, SchemaRef};
 use geoarrow_array::{GeoArrowArray, builder::WkbBuilder};
 
 use crate::{
-    ColumnSpec, Gpkg, GpkgError, GpkgLayer, gpkg::feature::gpkg_geometry_to_wkb_bytes,
+    ColumnSpec, Gpkg, GpkgError, GpkgLayer, gpkg::gpkg_geometry_to_wkb_bytes,
     ogc_sql::sql_select_features,
 };
 

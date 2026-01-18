@@ -8,12 +8,9 @@ mod feature;
 mod gpkg;
 mod layer;
 
-#[cfg(feature = "arrow")]
-pub(crate) mod arrow;
-
 pub use batch_iterator::GpkgFeatureBatchIterator;
 pub use feature::GpkgFeature;
 pub use gpkg::Gpkg;
 pub use layer::GpkgLayer;
 
-pub(crate) use feature::{gpkg_geometry_to_wkb, wkb_to_gpkg_geometry};
+pub(crate) use feature::{gpkg_geometry_to_wkb, gpkg_geometry_to_wkb_bytes, wkb_to_gpkg_geometry};
