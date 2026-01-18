@@ -2,7 +2,7 @@ use crate::Value;
 use crate::error::{GpkgError, Result};
 use rusqlite::types::Type;
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 use wkb::reader::Wkb;
 
 /// A single feature with geometry bytes and owned properties.
@@ -10,7 +10,7 @@ pub struct GpkgFeature {
     pub(super) id: i64,
     pub(super) geometry: Option<Vec<u8>>,
     pub(super) properties: Vec<Value>,
-    pub(super) property_index_by_name: Arc<HashMap<String, usize>>,
+    pub(super) property_index_by_name: Rc<HashMap<String, usize>>,
 }
 
 impl GpkgFeature {
@@ -99,14 +99,14 @@ impl GpkgFeature {
             id,
             geometry: Some(buf),
             properties: properties.into_iter().collect(),
-            property_index_by_name: Arc::new(property_index_by_name),
+            property_index_by_name: Rc::new(property_index_by_name),
         })
     }
 }
 
 /// Strip GeoPackage header and envelope bytes to access raw WKB.
 // cf. https://www.geopackage.org/spec140/index.html#gpb_format
-pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> Result<Wkb<'a>> {
+pub(crate) fn gpkg_geometry_to_wkb_bytes(b: &[u8]) -> Result<&[u8]> {
     let flags = b[3];
     let envelope_size: usize = match flags & 0b00001110 {
         0b00000000 => 0,  // no envelope
@@ -120,7 +120,11 @@ pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> Result<Wkb<'a>> {
     };
     let offset = 8 + envelope_size;
 
-    Ok(Wkb::try_new(&b[offset..])?)
+    Ok(&b[offset..])
+}
+
+pub(crate) fn gpkg_geometry_to_wkb<'a>(b: &'a [u8]) -> Result<Wkb<'a>> {
+    Ok(Wkb::try_new(gpkg_geometry_to_wkb_bytes(b)?)?)
 }
 
 // cf. https://www.geopackage.org/spec140/index.html#gpb_format

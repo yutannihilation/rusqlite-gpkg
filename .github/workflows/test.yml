@@ -16,7 +16,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - run: cargo test
+      - name: Test default features
+        run: cargo test
+
+      - name: Test arrow features
+        run: cargo test --features arrow
+
   wasm:
     runs-on: ubuntu-latest
     steps:

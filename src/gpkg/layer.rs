@@ -5,17 +5,18 @@ use crate::types::ColumnSpec;
 use geo_traits::GeometryTrait;
 use rusqlite::{params_from_iter, types::Type};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 use wkb::reader::Wkb;
 
-use super::{Gpkg, GpkgFeature, wkb_to_gpkg_geometry};
+use super::{GpkgFeature, wkb_to_gpkg_geometry};
 
 use crate::GpkgFeatureBatchIterator;
 
 #[derive(Debug)]
 /// A GeoPackage layer with geometry metadata and column specs.
-pub struct GpkgLayer<'a> {
-    pub(super) conn: &'a Gpkg,
+pub struct GpkgLayer {
+    pub(super) conn: Rc<rusqlite::Connection>,
+    pub(super) is_read_only: bool,
     pub layer_name: String,
     pub geometry_column: String,
     pub primary_key_column: String,
@@ -23,7 +24,7 @@ pub struct GpkgLayer<'a> {
     pub geometry_dimension: wkb::reader::Dimension,
     pub srs_id: u32,
     pub property_columns: Vec<ColumnSpec>,
-    pub(super) property_index_by_name: Arc<HashMap<String, usize>>,
+    pub(super) property_index_by_name: Rc<HashMap<String, usize>>,
     pub(super) insert_sql: String,
     pub(super) update_sql: String,
 }
@@ -33,7 +34,7 @@ pub struct GpkgLayer<'a> {
 const GEOMETRY_INDEX: usize = 0;
 const PRIMARY_INDEX: usize = 1;
 
-impl<'a> GpkgLayer<'a> {
+impl GpkgLayer {
     /// Return all the features in the layer.
     ///
     /// Example:
@@ -63,7 +64,21 @@ impl<'a> GpkgLayer<'a> {
             None,
         );
 
-        self.features_inner(&sql)
+        let sql: &str = &sql;
+        let mut stmt = self.conn.prepare(sql)?;
+        let features = stmt
+            .query_map([], |row| {
+                row_to_feature(
+                    row,
+                    &self.property_columns,
+                    &self.geometry_column,
+                    &self.primary_key_column,
+                    &self.property_index_by_name,
+                )
+            })?
+            .collect::<rusqlite::Result<Vec<GpkgFeature>>>()?;
+
+        Ok(features)
     }
 
     /// Return an iterator that yields features in batches.
@@ -87,7 +102,7 @@ impl<'a> GpkgLayer<'a> {
     /// }
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn features_batch(&self, batch_size: u32) -> Result<GpkgFeatureBatchIterator<'a>> {
+    pub fn features_batch<'a>(&'a self, batch_size: u32) -> Result<GpkgFeatureBatchIterator<'a>> {
         let columns = self.property_columns.iter().map(|spec| spec.name.as_str());
         let sql = sql_select_features(
             &self.layer_name,
@@ -97,35 +112,9 @@ impl<'a> GpkgLayer<'a> {
             Some(batch_size),
         );
 
-        let stmt = self.conn.connection().prepare(&sql)?;
+        let stmt = self.conn.prepare(&sql)?;
 
-        Ok(GpkgFeatureBatchIterator {
-            stmt,
-            batch_size,
-            property_columns: self.property_columns.clone(),
-            geometry_column: self.geometry_column.clone(),
-            primary_key_column: self.primary_key_column.clone(),
-            property_index_by_name: self.property_index_by_name.clone(),
-            offset: 0,
-            end_or_invalid_state: false,
-        })
-    }
-
-    fn features_inner(&self, sql: &str) -> Result<Vec<GpkgFeature>> {
-        let mut stmt = self.conn.connection().prepare(sql)?;
-        let features = stmt
-            .query_map([], |row| {
-                row_to_feature(
-                    row,
-                    &self.property_columns,
-                    &self.geometry_column,
-                    &self.primary_key_column,
-                    &self.property_index_by_name,
-                )
-            })?
-            .collect::<rusqlite::Result<Vec<GpkgFeature>>>()?;
-
-        Ok(features)
+        Ok(GpkgFeatureBatchIterator::new(stmt, self, batch_size))
     }
 
     /// Remove all rows from the layer.
@@ -142,7 +131,7 @@ impl<'a> GpkgLayer<'a> {
     pub fn truncate(&self) -> Result<usize> {
         self.ensure_writable()?;
         let sql = sql_delete_all(&self.layer_name);
-        Ok(self.conn.connection().execute(&sql, [])?)
+        Ok(self.conn.execute(&sql, [])?)
     }
 
     /// Insert a feature with geometry and ordered property values.
@@ -183,7 +172,7 @@ impl<'a> GpkgLayer<'a> {
         let params = std::iter::once(SqlParam::Owned(Value::Geometry(geom)))
             .chain(properties.into_iter().map(SqlParam::Borrowed));
 
-        let mut stmt = self.conn.connection().prepare_cached(&self.insert_sql)?;
+        let mut stmt = self.conn.prepare_cached(&self.insert_sql)?;
         stmt.execute(params_from_iter(params))?;
         Ok(())
     }
@@ -226,13 +215,13 @@ impl<'a> GpkgLayer<'a> {
             .chain(properties.into_iter().map(SqlParam::Borrowed))
             .chain(std::iter::once(SqlParam::Owned(Value::Integer(id))));
 
-        let mut stmt = self.conn.connection().prepare_cached(&self.update_sql)?;
+        let mut stmt = self.conn.prepare_cached(&self.update_sql)?;
         stmt.execute(params_from_iter(params))?;
         Ok(())
     }
 
     fn ensure_writable(&self) -> Result<()> {
-        if self.conn.is_read_only() {
+        if self.is_read_only {
             return Err(GpkgError::ReadOnly);
         }
         Ok(())
@@ -313,7 +302,7 @@ pub(crate) fn row_to_feature(
     property_columns: &[ColumnSpec],
     geometry_column: &str,
     primary_key_column: &str,
-    property_index_by_name: &Arc<HashMap<String, usize>>,
+    property_index_by_name: &Rc<HashMap<String, usize>>,
 ) -> std::result::Result<GpkgFeature, rusqlite::Error> {
     let mut id: Option<i64> = None;
     let mut geometry: Option<Vec<u8>> = None;
@@ -430,7 +419,7 @@ mod tests {
 
         layer.insert(geometry, std::iter::empty::<&Value>())?;
 
-        let geom_blob: Vec<u8> = layer.conn.connection().query_row(
+        let geom_blob: Vec<u8> = layer.conn.query_row(
             &format!(r#"SELECT "geom" FROM "{}""#, layer_name),
             [],
             |row| row.get(0),
@@ -515,7 +504,7 @@ mod tests {
         )?;
 
         let (geometry_type_name, srs_id, z, m): (String, u32, i8, i8) =
-            gpkg.connection().query_row(
+            gpkg.conn.query_row(
                 "SELECT geometry_type_name, srs_id, z, m FROM gpkg_geometry_columns WHERE table_name = 'points'",
                 [],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -559,14 +548,14 @@ mod tests {
         let name_a = "alpha".to_string();
         let value_a = 7_i64;
         layer.insert(point_a, params![name_a, value_a])?;
-        let id = layer.conn.connection().last_insert_rowid();
+        let id = layer.conn.last_insert_rowid();
 
         let point_b = Point::new(4.0, 5.0);
         let name_b = "beta".to_string();
         let value_b = 9_i64;
         layer.update(point_b, params![name_b, value_b], id)?;
 
-        let (geom_blob, name, value): (Vec<u8>, String, i64) = layer.conn.connection().query_row(
+        let (geom_blob, name, value): (Vec<u8>, String, i64) = layer.conn.query_row(
             "SELECT geom, name, value FROM points WHERE fid = ?1",
             [id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -713,9 +702,9 @@ mod tests {
 
         let point_a = Point::new(1.5, -2.0);
         layer.insert(point_a, std::iter::empty::<&Value>())?;
-        let id = layer.conn.connection().last_insert_rowid();
+        let id = layer.conn.last_insert_rowid();
 
-        let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
+        let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.query_row(
             "SELECT minx, maxx, miny, maxy FROM rtree_rtree_points_geom WHERE id = ?1",
             [id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -727,7 +716,7 @@ mod tests {
 
         let point_b = Point::new(-4.0, 6.25);
         layer.update(point_b, std::iter::empty::<&Value>(), id)?;
-        let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.connection().query_row(
+        let (minx, maxx, miny, maxy): (f64, f64, f64, f64) = layer.conn.query_row(
             "SELECT minx, maxx, miny, maxy FROM rtree_rtree_points_geom WHERE id = ?1",
             [id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
@@ -738,11 +727,12 @@ mod tests {
         assert_eq!(maxy, 6.25);
 
         layer.truncate()?;
-        let count: i64 = layer.conn.connection().query_row(
-            "SELECT COUNT(*) FROM rtree_rtree_points_geom",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 =
+            layer
+                .conn
+                .query_row("SELECT COUNT(*) FROM rtree_rtree_points_geom", [], |row| {
+                    row.get(0)
+                })?;
         assert_eq!(count, 0);
 
         Ok(())
@@ -773,11 +763,9 @@ mod tests {
         let deleted = layer.truncate()?;
         assert_eq!(deleted, 2);
 
-        let count: i64 =
-            layer
-                .conn
-                .connection()
-                .query_row("SELECT COUNT(*) FROM points", [], |row| row.get(0))?;
+        let count: i64 = layer
+            .conn
+            .query_row("SELECT COUNT(*) FROM points", [], |row| row.get(0))?;
         assert_eq!(count, 0);
 
         Ok(())
@@ -844,7 +832,7 @@ mod tests {
             params![Some(1.0_f64), Option::<i64>::None],
         )?;
 
-        let (a, b): (Option<f64>, Option<i64>) = layer.conn.connection().query_row(
+        let (a, b): (Option<f64>, Option<i64>) = layer.conn.query_row(
             "SELECT a, b FROM nullable_params WHERE fid = 1",
             [],
             |row| Ok((row.get(0)?, row.get(1)?)),

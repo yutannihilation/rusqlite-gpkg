@@ -190,6 +190,9 @@ mod conversions;
 mod ogc_sql;
 mod types;
 
+#[cfg(feature = "arrow")]
+pub use gpkg::arrow::reader::ArrowGpkgReader;
+
 pub use error::{GpkgError, Result};
 pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureBatchIterator, GpkgLayer};
 pub use sql_functions::register_spatial_functions;

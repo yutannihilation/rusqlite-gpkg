@@ -8,6 +8,9 @@ mod feature;
 mod gpkg;
 mod layer;
 
+#[cfg(feature = "arrow")]
+pub(crate) mod arrow;
+
 pub use batch_iterator::GpkgFeatureBatchIterator;
 pub use feature::GpkgFeature;
 pub use gpkg::Gpkg;

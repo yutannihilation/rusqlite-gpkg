@@ -12,15 +12,15 @@ use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, GpkgLayerMetadata};
 use rusqlite::OpenFlags;
 use std::path::Path;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use super::layer::GpkgLayer;
 
 #[derive(Debug)]
 /// GeoPackage connection wrapper for reading (and later writing) layers.
 pub struct Gpkg {
-    conn: rusqlite::Connection,
-    read_only: bool,
+    pub(crate) conn: Rc<rusqlite::Connection>,
+    pub(crate) read_only: bool,
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -41,7 +41,7 @@ fn rusqlite_open_path<P: AsRef<Path>>(
 }
 
 impl Gpkg {
-    fn open_inner(conn: rusqlite::Connection, read_only: bool) -> Result<Self> {
+    pub(crate) fn new_from_conn(conn: Rc<rusqlite::Connection>, read_only: bool) -> Result<Self> {
         register_spatial_functions(&conn)?;
         Ok(Self { conn, read_only })
     }
@@ -57,7 +57,7 @@ impl Gpkg {
     /// ```
     pub fn open_read_only<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = rusqlite_open_path(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        Self::open_inner(conn, true)
+        Self::new_from_conn(Rc::new(conn), true)
     }
 
     /// Open a new or existing GeoPackage in read-write mode.
@@ -80,7 +80,7 @@ impl Gpkg {
             initialize_gpkg(&conn)?;
         }
 
-        Self::open_inner(conn, false)
+        Self::new_from_conn(Rc::new(conn), false)
     }
 
     /// Create a new GeoPackage in memory.
@@ -97,7 +97,7 @@ impl Gpkg {
 
         initialize_gpkg(&conn)?;
 
-        Self::open_inner(conn, false)
+        Self::new_from_conn(Rc::new(conn), false)
     }
 
     /// Expert-only: register a spatial reference system in gpkg_spatial_ref_sys.
@@ -185,7 +185,7 @@ impl Gpkg {
     /// let layer = gpkg.get_layer("points")?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn get_layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
+    pub fn get_layer(&self, layer_name: &str) -> Result<GpkgLayer> {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
         let column_specs = self.get_column_specs(
@@ -206,10 +206,11 @@ impl Gpkg {
             &other_columns,
         );
         let property_index_by_name =
-            Arc::new(GpkgLayer::build_property_index_by_name(&other_columns));
+            Rc::new(GpkgLayer::build_property_index_by_name(&other_columns));
 
         Ok(GpkgLayer {
-            conn: self,
+            conn: self.conn.clone(),
+            is_read_only: self.read_only,
             layer_name: layer_name.to_string(),
             geometry_column,
             primary_key_column,
@@ -246,15 +247,15 @@ impl Gpkg {
     /// layer.insert(Point::new(1.0, 2.0), params!["alpha"])?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn create_layer<'a>(
-        &'a self,
+    pub fn create_layer(
+        &self,
         layer_name: &str,
         geometry_column: &str,
         geometry_type: wkb::reader::GeometryType,
         geometry_dimension: wkb::reader::Dimension,
         srs_id: u32,
         other_column_specs: &[ColumnSpec],
-    ) -> Result<GpkgLayer<'a>> {
+    ) -> Result<GpkgLayer> {
         if self.read_only {
             return Err(GpkgError::ReadOnly);
         }
@@ -313,10 +314,11 @@ impl Gpkg {
         let update_sql =
             GpkgLayer::build_update_sql(layer_name, geometry_column, "fid", other_column_specs);
         let property_index_by_name =
-            Arc::new(GpkgLayer::build_property_index_by_name(other_column_specs));
+            Rc::new(GpkgLayer::build_property_index_by_name(other_column_specs));
 
         Ok(GpkgLayer {
-            conn: self,
+            conn: self.conn.clone(),
+            is_read_only: self.read_only,
             layer_name: layer_name.to_string(),
             geometry_column: geometry_column.to_string(),
             primary_key_column: "fid".to_string(),
@@ -395,17 +397,9 @@ impl Gpkg {
         let reader = std::io::Cursor::new(data_ref);
         conn.deserialize_read_exact("main", reader, data_ref.len(), false)?;
         Ok(Self {
-            conn,
+            conn: Rc::new(conn),
             read_only: false,
         })
-    }
-
-    pub(crate) fn connection(&self) -> &rusqlite::Connection {
-        &self.conn
-    }
-
-    pub(crate) fn is_read_only(&self) -> bool {
-        self.read_only
     }
 
     /// Resolve the table columns and map SQLite types.

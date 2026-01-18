@@ -1,9 +1,8 @@
-use crate::Result;
 use crate::gpkg::GpkgFeature;
 use crate::types::ColumnSpec;
-use rusqlite;
+use crate::{GpkgLayer, Result};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::rc::Rc;
 
 /// Iterator that yields batches of features from a layer.
 ///
@@ -15,10 +14,25 @@ pub struct GpkgFeatureBatchIterator<'a> {
     pub(super) property_columns: Vec<ColumnSpec>,
     pub(super) geometry_column: String,
     pub(super) primary_key_column: String,
-    pub(super) property_index_by_name: Arc<HashMap<String, usize>>,
+    pub(super) property_index_by_name: Rc<HashMap<String, usize>>,
     pub(super) batch_size: u32,
     pub(super) offset: u32,
     pub(super) end_or_invalid_state: bool,
+}
+
+impl<'a> GpkgFeatureBatchIterator<'a> {
+    pub(crate) fn new(stmt: rusqlite::Statement<'a>, layer: &GpkgLayer, batch_size: u32) -> Self {
+        Self {
+            stmt,
+            batch_size,
+            property_columns: layer.property_columns.clone(),
+            geometry_column: layer.geometry_column.clone(),
+            primary_key_column: layer.primary_key_column.clone(),
+            property_index_by_name: layer.property_index_by_name.clone(),
+            offset: 0,
+            end_or_invalid_state: false,
+        }
+    }
 }
 
 impl<'a> Iterator for GpkgFeatureBatchIterator<'a> {
@@ -61,7 +75,7 @@ impl<'a> Iterator for GpkgFeatureBatchIterator<'a> {
         let result_size = features.len();
         if result_size < self.batch_size as usize {
             self.end_or_invalid_state = true;
-            if features.is_empty() {
+            if result_size == 0 {
                 return None;
             }
         }
