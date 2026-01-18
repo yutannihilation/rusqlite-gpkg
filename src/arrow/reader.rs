@@ -9,7 +9,12 @@ use crate::{
     ogc_sql::sql_select_features,
 };
 
-/// Iterator that yields `RecordBatch`s of features from a layer in a Gpkg file.
+/// Iterator that yields Arrow `RecordBatch`es of features from a GeoPackage layer.
+///
+/// `ArrowGpkgReader` is the primary entry point for Arrow users. Construct it with
+/// [`ArrowGpkgReader::new`] and then iterate to receive batches of features.
+/// The reader holds a prepared `rusqlite::Statement`, so it borrows the `Gpkg`
+/// that created it and must not outlive that `Gpkg`.
 pub struct ArrowGpkgReader<'a> {
     pub(super) stmt: rusqlite::Statement<'a>,
     pub(super) property_columns: Vec<ColumnSpec>,
@@ -21,6 +26,13 @@ pub struct ArrowGpkgReader<'a> {
 }
 
 impl<'a> ArrowGpkgReader<'a> {
+    /// Create a new Arrow reader for a layer.
+    ///
+    /// Why this takes a `&Gpkg` instead of a `Read` implementor:
+    /// - `rusqlite` opens databases from a path, not a streaming `Read`.
+    /// - the prepared `Statement` held by this reader borrows the `Gpkg`'s
+    ///   connection, so the `Gpkg` must live outside this struct to define the
+    ///   statement's lifetime.
     pub fn new(gpkg: &'a Gpkg, layer_name: &str, batch_size: u32) -> crate::error::Result<Self> {
         let layer = gpkg.get_layer(layer_name)?;
         let columns = layer.property_columns.iter().map(|spec| spec.name.as_str());
