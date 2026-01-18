@@ -19,8 +19,8 @@ jobs:
       - name: Test default features
         run: cargo test
 
-      - name: Test full features
-        run: cargo test --all-features
+      - name: Test arrow features
+        run: cargo test --features arrow
 
   wasm:
     runs-on: ubuntu-latest

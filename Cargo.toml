@@ -39,3 +39,6 @@ required-features = ["wkt"]
 [dev-dependencies]
 geo-types = "0.7"
 wkt = "0.14"
+
+[package.metadata.docs.rs]
+features = ["arrow"]
