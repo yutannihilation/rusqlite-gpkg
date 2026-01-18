@@ -210,13 +210,14 @@ impl GpkgRecordBatchBuilder {
     pub(crate) fn push(&mut self, row: &rusqlite::Row<'_>) -> crate::error::Result<()> {
         let n = self.builders.len();
         for i in 0..n {
-            match row.get::<usize, rusqlite::types::Value>(i) {
+            let column_index = i + 2;
+            match row.get::<usize, rusqlite::types::Value>(column_index) {
                 Ok(v) => self.builders[i].push(v)?,
                 Err(e) => return Err(GpkgError::Sql(e)),
             }
         }
 
-        match row.get::<usize, rusqlite::types::Value>(n) {
+        match row.get::<usize, rusqlite::types::Value>(0) {
             Ok(rusqlite::types::Value::Blob(b)) => {
                 let wkb_bytes = gpkg_geometry_to_wkb_bytes(&b)?;
                 self.geo_builder
@@ -275,4 +276,157 @@ fn wkb_geometry_builder(srs_id: String, batch_size: usize) -> WkbBuilder<i32> {
         geoarrow_schema::WkbType::new(geoarrow_metadata.into()),
         geoarrow_array::capacity::WkbCapacity::new(21 * batch_size, batch_size),
     )
+}
+
+#[cfg(all(test, feature = "arrow"))]
+mod tests {
+    use super::GpkgFeatureRecordBatchIterator;
+    use crate::Result;
+    use crate::gpkg::Gpkg;
+    use crate::params;
+    use crate::types::{ColumnSpec, ColumnType};
+    use arrow_array::{BooleanArray, Float64Array, Int64Array, StringArray};
+    use arrow_schema::DataType;
+    use geo_types::Point;
+    use geoarrow_array::GeoArrowArrayAccessor;
+    use geoarrow_array::array::WkbArray;
+    use wkb::reader::GeometryType;
+
+    fn create_test_layer(gpkg: &Gpkg) -> Result<crate::GpkgLayer<'_>> {
+        let columns = vec![
+            ColumnSpec {
+                name: "active".to_string(),
+                column_type: ColumnType::Boolean,
+            },
+            ColumnSpec {
+                name: "name".to_string(),
+                column_type: ColumnType::Varchar,
+            },
+            ColumnSpec {
+                name: "score".to_string(),
+                column_type: ColumnType::Double,
+            },
+            ColumnSpec {
+                name: "count".to_string(),
+                column_type: ColumnType::Integer,
+            },
+        ];
+
+        gpkg.create_layer(
+            "arrow_points",
+            "geom",
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )
+    }
+
+    #[test]
+    fn record_batch_has_expected_types_and_values() -> Result<()> {
+        let gpkg = Gpkg::open_in_memory()?;
+        let layer = create_test_layer(&gpkg)?;
+
+        let first_geom = Point::new(1.0, 2.0);
+        let second_geom = Point::new(3.0, 4.0);
+
+        layer.insert(first_geom, params![true, "alpha", 1.25, 7])?;
+        layer.insert(second_geom, params![false, "beta", 2.5, 9])?;
+
+        let mut iter: GpkgFeatureRecordBatchIterator<'_> = layer.features_record_batch(10)?;
+        let batch = iter.next().transpose()?.expect("first batch");
+
+        let schema = batch.schema();
+        let fields = schema.fields();
+        assert_eq!(fields.len(), 5);
+        assert_eq!(fields[0].name(), "active");
+        assert_eq!(fields[1].name(), "name");
+        assert_eq!(fields[2].name(), "score");
+        assert_eq!(fields[3].name(), "count");
+        assert_eq!(fields[4].name(), "geom");
+        assert_eq!(fields[0].data_type(), &DataType::Boolean);
+        assert_eq!(fields[1].data_type(), &DataType::Utf8);
+        assert_eq!(fields[2].data_type(), &DataType::Float64);
+        assert_eq!(fields[3].data_type(), &DataType::Int64);
+
+        let active = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("boolean array");
+        let name = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("string array");
+        let score = batch
+            .column(2)
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .expect("float array");
+        let count = batch
+            .column(3)
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .expect("int array");
+
+        assert_eq!(active.value(0), true);
+        assert_eq!(active.value(1), false);
+        assert_eq!(name.value(0), "alpha");
+        assert_eq!(name.value(1), "beta");
+        assert_eq!(score.value(0), 1.25);
+        assert_eq!(score.value(1), 2.5);
+        assert_eq!(count.value(0), 7);
+        assert_eq!(count.value(1), 9);
+
+        let geom_field = fields[4].as_ref();
+        let geom_array = WkbArray::try_from((batch.column(4).as_ref(), geom_field)).unwrap();
+        let geom = geom_array.value(0).unwrap();
+        let mut expected = Vec::new();
+        wkb::writer::write_geometry(&mut expected, &Point::new(1.0, 2.0), &Default::default())?;
+        assert_eq!(geom.buf(), expected.as_slice());
+
+        Ok(())
+    }
+
+    #[test]
+    fn record_batch_iterator_respects_offsets_and_limits() -> Result<()> {
+        let gpkg = Gpkg::open_in_memory()?;
+        let columns = vec![ColumnSpec {
+            name: "rank".to_string(),
+            column_type: ColumnType::Integer,
+        }];
+        let layer = gpkg.create_layer(
+            "arrow_offsets",
+            "geom",
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        for i in 0..5 {
+            layer.insert(Point::new(i as f64, i as f64), params![i as i64])?;
+        }
+
+        let mut values = Vec::new();
+        let mut batch_sizes = Vec::new();
+        for batch in layer.features_record_batch(2)? {
+            let batch = batch?;
+            batch_sizes.push(batch.num_rows());
+            let array = batch
+                .column(0)
+                .as_any()
+                .downcast_ref::<Int64Array>()
+                .expect("int array");
+            for row in 0..array.len() {
+                values.push(array.value(row));
+            }
+        }
+
+        assert_eq!(values, vec![0, 1, 2, 3, 4]);
+        assert_eq!(batch_sizes, vec![2, 2, 1]);
+
+        Ok(())
+    }
 }
