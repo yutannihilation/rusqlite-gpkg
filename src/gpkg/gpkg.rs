@@ -185,7 +185,7 @@ impl Gpkg {
     /// let layer = gpkg.get_layer("points")?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn get_layer<'a>(&'a self, layer_name: &str) -> Result<GpkgLayer<'a>> {
+    pub fn get_layer(&self, layer_name: &str) -> Result<GpkgLayer> {
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
         let column_specs = self.get_column_specs(
@@ -209,7 +209,8 @@ impl Gpkg {
             Arc::new(GpkgLayer::build_property_index_by_name(&other_columns));
 
         Ok(GpkgLayer {
-            conn: self,
+            conn: self.conn.clone(),
+            is_read_only: self.read_only,
             layer_name: layer_name.to_string(),
             geometry_column,
             primary_key_column,
@@ -246,15 +247,15 @@ impl Gpkg {
     /// layer.insert(Point::new(1.0, 2.0), params!["alpha"])?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
-    pub fn create_layer<'a>(
-        &'a self,
+    pub fn create_layer(
+        &self,
         layer_name: &str,
         geometry_column: &str,
         geometry_type: wkb::reader::GeometryType,
         geometry_dimension: wkb::reader::Dimension,
         srs_id: u32,
         other_column_specs: &[ColumnSpec],
-    ) -> Result<GpkgLayer<'a>> {
+    ) -> Result<GpkgLayer> {
         if self.read_only {
             return Err(GpkgError::ReadOnly);
         }
@@ -316,7 +317,8 @@ impl Gpkg {
             Arc::new(GpkgLayer::build_property_index_by_name(other_column_specs));
 
         Ok(GpkgLayer {
-            conn: self,
+            conn: self.conn.clone(),
+            is_read_only: self.read_only,
             layer_name: layer_name.to_string(),
             geometry_column: geometry_column.to_string(),
             primary_key_column: "fid".to_string(),
@@ -400,12 +402,9 @@ impl Gpkg {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn connection(&self) -> &rusqlite::Connection {
         &self.conn.as_ref()
-    }
-
-    pub(crate) fn is_read_only(&self) -> bool {
-        self.read_only
     }
 
     /// Resolve the table columns and map SQLite types.

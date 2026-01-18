@@ -319,7 +319,7 @@ mod tests {
     use geoarrow_array::array::WkbArray;
     use wkb::reader::GeometryType;
 
-    fn create_test_layer(gpkg: &Gpkg) -> Result<crate::GpkgLayer<'_>> {
+    fn create_test_layer(gpkg: &Gpkg) -> Result<crate::GpkgLayer> {
         let columns = vec![
             ColumnSpec {
                 name: "active".to_string(),
