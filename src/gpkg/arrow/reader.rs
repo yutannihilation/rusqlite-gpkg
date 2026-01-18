@@ -9,7 +9,7 @@ use crate::{
     ogc_sql::sql_select_features,
 };
 
-/// Iterator that yields `RecordBatch`s` of features from a layer in a Gpkg file.
+/// Iterator that yields `RecordBatch`s of features from a layer in a Gpkg file.
 pub struct ArrowGpkgReader<'a> {
     pub(super) stmt: rusqlite::Statement<'a>,
     pub(super) property_columns: Vec<ColumnSpec>,
