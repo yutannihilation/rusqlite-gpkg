@@ -17,7 +17,7 @@ wkt = { version = "0.14", optional = true }
 
 # For allow conversions
 arrow-array = { version = "57.2.0", optional = true }
-arrow-schema = { version = "57.2.0", optional = true }
+arrow-schema = { version = "57.3.0", optional = true }
 geoarrow-schema = { version = "0.7.0", optional = true }
 geoarrow-array = { version = "0.7.0", optional = true }
 
