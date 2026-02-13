@@ -1,6 +1,5 @@
 use crate::Value;
 use crate::error::{GpkgError, Result};
-use rusqlite::types::Type;
 use std::collections::HashMap;
 use std::rc::Rc;
 use wkb::reader::Wkb;
@@ -45,13 +44,12 @@ impl GpkgFeature {
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn geometry(&self) -> Result<Wkb<'_>> {
-        let bytes = self.geometry.as_ref().ok_or_else(|| {
-            GpkgError::Sql(rusqlite::Error::InvalidColumnType(
-                0,
-                "geometry".to_string(),
-                Type::Null,
-            ))
-        })?;
+        let bytes = self
+            .geometry
+            .as_ref()
+            .ok_or_else(|| GpkgError::MissingGeometryColumn {
+                layer_name: "feature row".to_string(),
+            })?;
         gpkg_geometry_to_wkb(bytes)
     }
 
@@ -67,7 +65,9 @@ impl GpkgFeature {
     /// let feature = features.first().expect("feature");
     /// let value: String = feature
     ///     .property("name")
-    ///     .ok_or("missing name")?
+    ///     .ok_or_else(|| rusqlite_gpkg::GpkgError::MissingProperty {
+    ///         property: "name".to_string(),
+    ///     })?
     ///     .try_into()?;
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
@@ -107,6 +107,13 @@ impl GpkgFeature {
 /// Strip GeoPackage header and envelope bytes to access raw WKB.
 // cf. https://www.geopackage.org/spec140/index.html#gpb_format
 pub(crate) fn gpkg_geometry_to_wkb_bytes(b: &[u8]) -> Result<&[u8]> {
+    if b.len() < 8 {
+        return Err(GpkgError::InvalidGpkgGeometryLength {
+            len: b.len(),
+            minimum: 8,
+        });
+    }
+
     let flags = b[3];
     let envelope_size: usize = match flags & 0b00001110 {
         0b00000000 => 0,  // no envelope
@@ -119,6 +126,12 @@ pub(crate) fn gpkg_geometry_to_wkb_bytes(b: &[u8]) -> Result<&[u8]> {
         }
     };
     let offset = 8 + envelope_size;
+    if b.len() < offset {
+        return Err(GpkgError::InvalidGpkgGeometryEnvelope {
+            len: b.len(),
+            required: offset,
+        });
+    }
 
     Ok(&b[offset..])
 }

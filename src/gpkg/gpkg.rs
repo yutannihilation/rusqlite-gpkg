@@ -261,9 +261,9 @@ impl Gpkg {
         }
 
         if self.list_layers()?.iter().any(|name| name == layer_name) {
-            return Err(GpkgError::Message(format!(
-                "Layer already exists: {layer_name}"
-            )));
+            return Err(GpkgError::LayerAlreadyExists {
+                layer_name: layer_name.to_string(),
+            });
         }
 
         let srs_exists: i64 = self.conn.query_row(
@@ -272,9 +272,7 @@ impl Gpkg {
             |row| row.get(0),
         )?;
         if srs_exists == 0 {
-            return Err(GpkgError::Message(format!(
-                "srs_id {srs_id} not found in gpkg_spatial_ref_sys"
-            )));
+            return Err(GpkgError::MissingSpatialRefSysId { srs_id });
         }
 
         let geometry_type_name = geometry_type_to_str(geometry_type);
@@ -422,27 +420,25 @@ impl Gpkg {
             let primary_key: i32 = row.get(2)?;
             let primary_key = primary_key != 0;
 
-            // cf. https://www.geopackage.org/spec140/index.html#_sqlite_container
-            let column_type = column_type_from_str(&column_type_str).ok_or_else(|| {
-                rusqlite::Error::InvalidColumnType(
-                    1,
-                    format!("Unexpected type {}", column_type_str),
-                    rusqlite::types::Type::Text,
-                )
-            })?;
-
-            Ok((name, column_type, primary_key))
+            Ok((name, column_type_str, primary_key))
         })?;
 
-        let result: std::result::Result<Vec<(String, crate::types::ColumnType, bool)>, _> =
-            column_specs.collect();
+        let result: std::result::Result<Vec<(String, String, bool)>, _> = column_specs.collect();
         let mut other_columns = Vec::new();
-        for (name, column_type, is_primary_key) in result? {
+        for (name, column_type_str, is_primary_key) in result? {
+            // cf. https://www.geopackage.org/spec140/index.html#_sqlite_container
+            let column_type = column_type_from_str(&column_type_str).ok_or_else(|| {
+                GpkgError::UnsupportedColumnType {
+                    column: name.clone(),
+                    declared_type: column_type_str,
+                }
+            })?;
+
             if is_primary_key {
                 if primary_key_column.is_some() {
-                    return Err(GpkgError::Message(format!(
-                        "Composite primary keys are not supported yet for layer: {layer_name}"
-                    )));
+                    return Err(GpkgError::CompositePrimaryKeyUnsupported {
+                        layer_name: layer_name.to_string(),
+                    });
                 }
                 primary_key_column = Some(name.clone());
                 continue;
@@ -454,15 +450,15 @@ impl Gpkg {
             }
         }
 
-        let primary_key_column = primary_key_column.ok_or_else(|| {
-            GpkgError::Message(format!(
-                "No primary key column found for layer: {layer_name}"
-            ))
-        })?;
+        let primary_key_column =
+            primary_key_column.ok_or_else(|| GpkgError::MissingPrimaryKeyColumn {
+                layer_name: layer_name.to_string(),
+            })?;
 
-        let geometry_column = geometry_column_name.ok_or_else(|| {
-            GpkgError::Message(format!("No geometry column found for layer: {layer_name}"))
-        })?;
+        let geometry_column =
+            geometry_column_name.ok_or_else(|| GpkgError::MissingGeometryColumn {
+                layer_name: layer_name.to_string(),
+            })?;
 
         Ok(GpkgLayerMetadata {
             primary_key_column,
@@ -530,12 +526,10 @@ mod tests {
             )
             .expect_err("missing srs should fail");
 
-        match err {
-            GpkgError::Message(message) => {
-                assert!(message.contains("srs_id 9999"));
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
+        assert!(matches!(
+            err,
+            GpkgError::MissingSpatialRefSysId { srs_id: 9999 }
+        ));
     }
 
     #[test]
@@ -598,12 +592,16 @@ mod tests {
         assert_eq!(features[0].id(), 1);
         let name: String = features[0]
             .property("name")
-            .ok_or("missing name")?
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "name".to_string(),
+            })?
             .try_into()?;
         assert_eq!(name, "alpha");
         let value: i64 = features[0]
             .property("value")
-            .ok_or("missing value")?
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "value".to_string(),
+            })?
             .try_into()?;
         assert_eq!(value, 7);
         assert_eq!(features[0].geometry()?.geometry_type(), GeometryType::Point);
@@ -611,12 +609,16 @@ mod tests {
         assert_eq!(features[1].id(), 2);
         let name: String = features[1]
             .property("name")
-            .ok_or("missing name")?
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "name".to_string(),
+            })?
             .try_into()?;
         assert_eq!(name, "beta");
         let value: i64 = features[1]
             .property("value")
-            .ok_or("missing value")?
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "value".to_string(),
+            })?
             .try_into()?;
         assert_eq!(value, 9);
         assert_eq!(features[1].geometry()?.geometry_type(), GeometryType::Point);
@@ -669,12 +671,16 @@ mod tests {
         assert_eq!(features[0].id(), 1);
         let name: String = features[0]
             .property("name")
-            .ok_or("missing name")?
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "name".to_string(),
+            })?
             .try_into()?;
         assert_eq!(name, "alpha");
         let value: i64 = features[0]
             .property("value")
-            .ok_or("missing value")?
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "value".to_string(),
+            })?
             .try_into()?;
         assert_eq!(value, 7);
         assert_eq!(features[0].geometry()?.geometry_type(), GeometryType::Point);
@@ -682,12 +688,16 @@ mod tests {
         assert_eq!(features[1].id(), 2);
         let name: String = features[1]
             .property("name")
-            .ok_or("missing name")?
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "name".to_string(),
+            })?
             .try_into()?;
         assert_eq!(name, "beta");
         let value: i64 = features[1]
             .property("value")
-            .ok_or("missing value")?
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "value".to_string(),
+            })?
             .try_into()?;
         assert_eq!(value, 9);
         assert_eq!(features[1].geometry()?.geometry_type(), GeometryType::Point);

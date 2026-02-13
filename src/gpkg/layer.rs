@@ -152,6 +152,13 @@ impl GpkgLayer {
         G: GeometryTrait<T = f64>,
         P: IntoIterator<Item = &'p Value>,
     {
+        let properties: Vec<&Value> = properties.into_iter().collect();
+        let expected = self.property_columns.len();
+        let got = properties.len();
+        if expected != got {
+            return Err(GpkgError::InvalidPropertyCount { expected, got });
+        }
+
         let geom = self.geom_from_geometry(geometry)?;
         let params = params_from_geom_and_properties(geom, properties, None);
         let mut stmt = self.conn.prepare_cached(&self.insert_sql)?;
@@ -176,6 +183,13 @@ impl GpkgLayer {
         G: GeometryTrait<T = f64>,
         P: IntoIterator<Item = &'p Value>,
     {
+        let properties: Vec<&Value> = properties.into_iter().collect();
+        let expected = self.property_columns.len();
+        let got = properties.len();
+        if expected != got {
+            return Err(GpkgError::InvalidPropertyCount { expected, got });
+        }
+
         let geom = self.geom_from_geometry(geometry)?;
         let params = params_from_geom_and_properties(geom, properties, Some(id));
         let mut stmt = self.conn.prepare_cached(&self.update_sql)?;
@@ -329,6 +343,7 @@ pub(crate) fn row_to_feature(
 
 #[cfg(test)]
 mod tests {
+    use crate::GpkgError;
     use crate::Result;
     use crate::Value;
     use crate::conversions::geometry_type_to_str;
@@ -428,16 +443,27 @@ mod tests {
         assert_eq!(geom.geometry_type(), GeometryType::Point);
 
         assert_eq!(feature.id(), 1);
-        let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
+        let name: String = feature
+            .property("name")
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "name".to_string(),
+            })?
+            .try_into()?;
         assert_eq!(name, "alpha");
 
         let active: bool = feature
             .property("active")
-            .ok_or("missing active")?
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "active".to_string(),
+            })?
             .try_into()?;
         assert_eq!(active, true);
 
-        let note = feature.property("note").ok_or("missing note")?;
+        let note = feature
+            .property("note")
+            .ok_or_else(|| GpkgError::MissingProperty {
+                property: "note".to_string(),
+            })?;
         assert_eq!(note, Value::Text("first".to_string()));
 
         Ok(())
@@ -619,11 +645,11 @@ mod tests {
         let gpkg = Gpkg::open_in_memory()?;
 
         let point_z = Wkt::from_str("POINT Z (1 2 3)")
-            .map_err(|err| crate::error::GpkgError::Message(err.to_string()))?;
+            .map_err(|err| GpkgError::UnsupportedGeometryType(err.to_string()))?;
         let line_m = Wkt::from_str("LINESTRING M (0 0 5, 1 1 6)")
-            .map_err(|err| crate::error::GpkgError::Message(err.to_string()))?;
+            .map_err(|err| GpkgError::UnsupportedGeometryType(err.to_string()))?;
         let polygon_zm = Wkt::from_str("POLYGON ZM ((0 0 1 10, 2 0 2 11, 2 2 3 12, 0 0 1 10))")
-            .map_err(|err| crate::error::GpkgError::Message(err.to_string()))?;
+            .map_err(|err| GpkgError::UnsupportedGeometryType(err.to_string()))?;
 
         assert_geometry_roundtrip(
             &gpkg,
@@ -760,8 +786,11 @@ mod tests {
         let only = "only".to_string();
         let result = layer.insert(Point::new(0.0, 0.0), params![only]);
         match result {
-            Err(crate::GpkgError::Sql(rusqlite::Error::InvalidParameterCount(_, _))) => {}
-            e => panic!("expected InvalidParameterCount error: {e:?}"),
+            Err(crate::GpkgError::InvalidPropertyCount {
+                expected: 2,
+                got: 1,
+            }) => {}
+            e => panic!("expected InvalidPropertyCount error: {e:?}"),
         }
 
         Ok(())

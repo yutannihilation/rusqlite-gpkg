@@ -82,7 +82,12 @@
 //!     .get_layer("points")?
 //!     .features()?;
 //! let feature = features.first().expect("feature");
-//! let name: String = feature.property("name").ok_or("missing name")?.try_into()?;
+//! let name: String = feature
+//!     .property("name")
+//!     .ok_or_else(|| rusqlite_gpkg::GpkgError::MissingProperty {
+//!         property: "name".to_string(),
+//!     })?
+//!     .try_into()?;
 //! # Ok::<(), rusqlite_gpkg::GpkgError>(())
 //! ```
 //!
