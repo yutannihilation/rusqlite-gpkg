@@ -1,0 +1,17 @@
+[package]
+name = "rusqlite-gpkg-web"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+geo-types = "0.7"
+rusqlite-gpkg = { path = "../.." }
+wasm-bindgen = "0.2.100"
+web-sys = { version = "0.3", features = [
+  "FileSystemSyncAccessHandle",
+  "FileSystemReadWriteOptions",
+] }

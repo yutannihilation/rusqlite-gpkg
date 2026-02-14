@@ -3,9 +3,15 @@
 [![](https://img.shields.io/github/actions/workflow/status/yutannihilation/rusqlite-gpkg/test.yml?style=flat-square&logo=github)](https://github.com/yutannihilation/rusqlite-gpkg/actions/workflows/test.yml)
 [![](https://img.shields.io/crates/v/rusqlite-gpkg.svg?style=flat-square&logo=rust)](https://crates.io/crates/rusqlite-gpkg)
 [![](https://img.shields.io/docsrs/rusqlite-gpkg.svg?style=flat-square&logo=docsdotrs)](https://docs.rs/rusqlite-gpkg/latest/)
-[![](<https://img.shields.io/badge/%C2%AF%5C_(%E3%83%84)_%2F%C2%AF-green?style=flat-square&logo=docsdotrs&label=docs%20(dev)&labelColor=grey>)](https://yutannihilation.github.io/rusqlite-gpkg/rusqlite_gpkg/)
 
 GeoPackage reader/writer built on top of [rusqlite](https://crates.io/crates/rusqlite).
+
+## Web Demo
+
+A simple GitHub Pages demo is available with a button to generate
+and download a `.gpkg` file in the browser using a Web Worker + OPFS.
+
+https://yutannihilation.github.io/rusqlite-gpkg/
 
 ## Overview
 

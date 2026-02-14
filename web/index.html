@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>rusqlite-gpkg Web Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>rusqlite-gpkg Web Demo</h1>
+      <p>Generate a GeoPackage with random points in the browser and download it.</p>
+      <p>
+        API reference:
+        <a href="https://docs.rs/rusqlite-gpkg/latest/rusqlite_gpkg/" target="_blank" rel="noopener noreferrer">docs.rs/rusqlite-gpkg</a>
+      </p>
+      <label for="point-count">Number of points</label>
+      <select id="point-count">
+        <option value="100">100 (tiny)</option>
+        <option value="10000">10k (typically &lt; 1 MB)</option>
+        <option value="1000000">1M (typically around 90 MB)</option>
+      </select>
+      <button id="generate" type="button">Generate a .gpkg and download</button>
+      <p id="status" aria-live="polite">Initializing worker...</p>
+    </main>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

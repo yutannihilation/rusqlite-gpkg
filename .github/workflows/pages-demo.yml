@@ -1,0 +1,64 @@
+name: Web Demo Pages
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf \
+            https://github.com/drager/wasm-pack/releases/download/v0.14.0/wasm-pack-v0.14.0-x86_64-unknown-linux-musl.tar.gz \
+            -o wasm-pack.tar.gz
+          tar -xzf wasm-pack.tar.gz
+          mkdir -p "$HOME/.local/bin"
+          mv wasm-pack-v0.14.0-x86_64-unknown-linux-musl/wasm-pack "$HOME/.local/bin/wasm-pack"
+          chmod +x "$HOME/.local/bin/wasm-pack"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          wasm-pack --version
+
+      - name: Build wasm package
+        run: wasm-pack build web/wasm --release --target web --out-dir ../pkg --out-name rusqlite_gpkg_web
+
+      - name: Prepare site artifact
+        run: |
+          rm -rf web-dist
+          mkdir -p web-dist
+          cp web/index.html web-dist/
+          cp web/main.js web-dist/
+          cp web/worker.js web-dist/
+          cp web/styles.css web-dist/
+          cp -R web/pkg web-dist/pkg
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: web-dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
