@@ -223,15 +223,15 @@ fn value_type_name(value: &Value) -> &'static str {
 
 #[inline]
 fn invalid_type(expected: &'static str, value: &Value) -> GpkgError {
-    GpkgError::Message(format!(
-        "expected {expected}, got {}",
-        value_type_name(value)
-    ))
+    GpkgError::ValueTypeMismatch {
+        expected,
+        actual: value_type_name(value),
+    }
 }
 
 #[inline]
 fn out_of_range(expected: &'static str) -> GpkgError {
-    GpkgError::Message(format!("value out of range for {expected}"))
+    GpkgError::ValueOutOfRange { target: expected }
 }
 
 macro_rules! impl_try_from_int_ref {

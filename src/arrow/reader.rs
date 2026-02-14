@@ -204,43 +204,64 @@ enum GpkgArrayBuilder {
 
 impl GpkgArrayBuilder {
     fn push(&mut self, value: rusqlite::types::Value) -> crate::error::Result<()> {
-        match (self, value) {
-            // null
-            (GpkgArrayBuilder::Boolean(builder), rusqlite::types::Value::Null) => {
-                builder.append_null();
-            }
-            (GpkgArrayBuilder::Varchar(builder), rusqlite::types::Value::Null) => {
-                builder.append_null();
-            }
-            (GpkgArrayBuilder::Double(builder), rusqlite::types::Value::Null) => {
-                builder.append_null();
-            }
-            (GpkgArrayBuilder::Integer(builder), rusqlite::types::Value::Null) => {
-                builder.append_null();
-            }
-            (GpkgArrayBuilder::Geometry(builder), rusqlite::types::Value::Null) => {
-                builder.push_wkb(None).unwrap();
-            }
-            // non-null value
-            (GpkgArrayBuilder::Boolean(builder), rusqlite::types::Value::Integer(i)) => {
-                builder.append_value(i == 1);
-            }
-            (GpkgArrayBuilder::Varchar(builder), rusqlite::types::Value::Text(t)) => {
-                builder.append_value(t);
-            }
-            (GpkgArrayBuilder::Double(builder), rusqlite::types::Value::Real(f)) => {
-                builder.append_value(f);
-            }
-            (GpkgArrayBuilder::Integer(builder), rusqlite::types::Value::Integer(i)) => {
-                builder.append_value(i);
-            }
-            (GpkgArrayBuilder::Geometry(builder), rusqlite::types::Value::Blob(b)) => {
-                let wkb_bytes = gpkg_geometry_to_wkb_bytes(&b)?;
-                builder
-                    .push_wkb(Some(wkb_bytes))
-                    .map_err(|e| GpkgError::Message(format!("{e:?}")))?;
-            }
-            _ => unreachable!(),
+        match self {
+            GpkgArrayBuilder::Boolean(builder) => match value {
+                rusqlite::types::Value::Null => builder.append_null(),
+                rusqlite::types::Value::Integer(i) => builder.append_value(i == 1),
+                other => {
+                    return Err(GpkgError::InvalidArrowValue {
+                        expected: "INTEGER or NULL",
+                        actual: rusqlite_value_type_name(&other),
+                    });
+                }
+            },
+            GpkgArrayBuilder::Varchar(builder) => match value {
+                rusqlite::types::Value::Null => builder.append_null(),
+                rusqlite::types::Value::Text(t) => builder.append_value(t),
+                other => {
+                    return Err(GpkgError::InvalidArrowValue {
+                        expected: "TEXT or NULL",
+                        actual: rusqlite_value_type_name(&other),
+                    });
+                }
+            },
+            GpkgArrayBuilder::Double(builder) => match value {
+                rusqlite::types::Value::Null => builder.append_null(),
+                rusqlite::types::Value::Real(f) => builder.append_value(f),
+                other => {
+                    return Err(GpkgError::InvalidArrowValue {
+                        expected: "REAL or NULL",
+                        actual: rusqlite_value_type_name(&other),
+                    });
+                }
+            },
+            GpkgArrayBuilder::Integer(builder) => match value {
+                rusqlite::types::Value::Null => builder.append_null(),
+                rusqlite::types::Value::Integer(i) => builder.append_value(i),
+                other => {
+                    return Err(GpkgError::InvalidArrowValue {
+                        expected: "INTEGER or NULL",
+                        actual: rusqlite_value_type_name(&other),
+                    });
+                }
+            },
+            GpkgArrayBuilder::Geometry(builder) => match value {
+                rusqlite::types::Value::Null => builder
+                    .push_wkb(None)
+                    .map_err(|e| GpkgError::GeoArrow(format!("{e:?}")))?,
+                rusqlite::types::Value::Blob(b) => {
+                    let wkb_bytes = gpkg_geometry_to_wkb_bytes(&b)?;
+                    builder
+                        .push_wkb(Some(wkb_bytes))
+                        .map_err(|e| GpkgError::GeoArrow(format!("{e:?}")))?;
+                }
+                other => {
+                    return Err(GpkgError::InvalidArrowValue {
+                        expected: "BLOB or NULL",
+                        actual: rusqlite_value_type_name(&other),
+                    });
+                }
+            },
         }
 
         Ok(())
@@ -269,12 +290,19 @@ impl GpkgRecordBatchBuilder {
                 let wkb_bytes = gpkg_geometry_to_wkb_bytes(&b)?;
                 self.geo_builder
                     .push_wkb(Some(wkb_bytes))
-                    .map_err(|e| GpkgError::Message(format!("{e:?}")))?;
+                    .map_err(|e| GpkgError::GeoArrow(format!("{e:?}")))?;
             }
             Ok(rusqlite::types::Value::Null) => {
-                self.geo_builder.push_wkb(None).unwrap();
+                self.geo_builder
+                    .push_wkb(None)
+                    .map_err(|e| GpkgError::GeoArrow(format!("{e:?}")))?;
             }
-            Ok(_) => return Err(GpkgError::Message("Invalid value".to_string())),
+            Ok(other) => {
+                return Err(GpkgError::InvalidArrowValue {
+                    expected: "BLOB or NULL",
+                    actual: rusqlite_value_type_name(&other),
+                });
+            }
             Err(e) => return Err(GpkgError::Sql(e)),
         }
 
@@ -303,7 +331,17 @@ impl GpkgRecordBatchBuilder {
             .collect();
         columns.push(self.geo_builder.finish().into_array_ref());
 
-        Ok(arrow_array::RecordBatch::try_new(self.schema_ref, columns).unwrap())
+        Ok(arrow_array::RecordBatch::try_new(self.schema_ref, columns)?)
+    }
+}
+
+fn rusqlite_value_type_name(value: &rusqlite::types::Value) -> &'static str {
+    match value {
+        rusqlite::types::Value::Null => "NULL",
+        rusqlite::types::Value::Integer(_) => "INTEGER",
+        rusqlite::types::Value::Real(_) => "REAL",
+        rusqlite::types::Value::Text(_) => "TEXT",
+        rusqlite::types::Value::Blob(_) => "BLOB",
     }
 }
 
