@@ -119,6 +119,8 @@ mod arrow;
 mod conversions;
 mod ogc_sql;
 mod types;
+#[cfg(target_family = "wasm")]
+pub mod vfs;
 
 #[cfg(feature = "arrow")]
 pub use arrow::reader::ArrowGpkgReader;
@@ -130,3 +132,6 @@ pub use types::{ColumnSpec, ColumnType, GpkgLayerMetadata, Value};
 
 // Re-export types used in public fields to keep the public API stable.
 pub use wkb::reader::{Dimension, GeometryType};
+
+#[cfg(target_family = "wasm")]
+pub use vfs::HybridVfsBuilder;

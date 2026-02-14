@@ -520,6 +520,7 @@ dependencies = [
  "geoarrow-array",
  "geoarrow-schema",
  "rusqlite",
+ "sqlite-wasm-rs",
  "wkb",
  "wkt",
 ]
