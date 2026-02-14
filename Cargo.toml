@@ -48,3 +48,13 @@ wkt = "0.14"
 features = ["arrow"]
 targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 rustdoc-args = ["--cfg", "docsrs"]
+
+
+[package.metadata.release]
+pre-release-replacements = [
+    { file = "CHANGELOG.md", search = "Unreleased", replace = "v{{version}}", min = 1 },
+    { file = "CHANGELOG.md", search = "\\.\\.\\.HEAD", replace = "...{{tag_name}}", exactly = 1 },
+    { file = "CHANGELOG.md", search = "ReleaseDate", replace = "{{date}}", min = 1 },
+    { file = "CHANGELOG.md", search = "<!-- next-header -->", replace = "<!-- next-header -->\n## [Unreleased] (ReleaseDate)\n", exactly = 1 },
+    { file = "CHANGELOG.md", search = "<!-- next-url -->", replace = "<!-- next-url -->\n[Unreleased]: https://github.com/yutannihilation/rusqlite-gpkg/compare/{{tag_name}}...HEAD", exactly = 1 },
+]

@@ -1,10 +1,9 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+<!-- next-header -->
+## [Unreleased] (ReleaseDate)
 
-The format is based on Keep a Changelog, and this project follows Semantic Versioning.
-
-## [Unreleased]
+## [v0.0.4] (2026-02-14)
 
 ### Added
 
@@ -17,3 +16,5 @@ The format is based on Keep a Changelog, and this project follows Semantic Versi
   # Ok::<(), rusqlite_gpkg::GpkgError>(())
   ```
 - Define finer-grained `GpkgError` enum variants so callers can handle failure modes more precisely.
+
+[v0.0.4]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.3...v0.0.4
