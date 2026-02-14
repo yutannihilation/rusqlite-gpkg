@@ -45,3 +45,5 @@ wkt = "0.14"
 
 [package.metadata.docs.rs]
 features = ["arrow"]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+rustdoc-args = ["--cfg", "docsrs"]

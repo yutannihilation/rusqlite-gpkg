@@ -119,6 +119,7 @@ impl Gpkg {
     /// This is available only on wasm targets. It uses the Hybrid VFS internally
     /// and reuses a default VFS registration across calls.
     #[cfg(target_family = "wasm")]
+    #[cfg_attr(docsrs, doc(cfg(target_family = "wasm")))]
     pub fn open_with_writer<P: AsRef<Path>, W: Write + 'static>(
         path: P,
         writer: W,
