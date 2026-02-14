@@ -134,4 +134,4 @@ pub use types::{ColumnSpec, ColumnType, GpkgLayerMetadata, Value};
 pub use wkb::reader::{Dimension, GeometryType};
 
 #[cfg(target_family = "wasm")]
-pub use vfs::HybridVfsBuilder;
+pub use vfs::{HybridVfsBuilder, HybridVfsHandle};

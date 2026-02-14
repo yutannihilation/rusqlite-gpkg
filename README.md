@@ -13,6 +13,8 @@ and download a `.gpkg` file in the browser using a Web Worker + OPFS.
 
 https://yutannihilation.github.io/rusqlite-gpkg/
 
+See `web/README.md` for implementation details and design notes.
+
 ## Overview
 
 `rusqlite-gpkg` provides a small API around the main GeoPackage concepts:

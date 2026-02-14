@@ -10,7 +10,11 @@ use crate::ogc_sql::{
 };
 use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, GpkgLayerMetadata};
+#[cfg(target_family = "wasm")]
+use crate::vfs::HybridVfsBuilder;
 use rusqlite::OpenFlags;
+#[cfg(target_family = "wasm")]
+use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -38,6 +42,15 @@ fn rusqlite_open_path<P: AsRef<Path>>(
     flags: rusqlite::OpenFlags,
 ) -> rusqlite::Result<rusqlite::Connection> {
     rusqlite::Connection::open_with_flags_and_vfs(path, flags, "opfs-sahpool")
+}
+
+#[cfg(target_family = "wasm")]
+fn rusqlite_open_path_with_vfs<P: AsRef<Path>>(
+    path: P,
+    flags: rusqlite::OpenFlags,
+    vfs_name: &str,
+) -> rusqlite::Result<rusqlite::Connection> {
+    rusqlite::Connection::open_with_flags_and_vfs(path, flags, vfs_name)
 }
 
 impl Gpkg {
@@ -81,6 +94,36 @@ impl Gpkg {
         }
 
         Self::new_from_conn(Rc::new(conn), false)
+    }
+
+    /// Open a new or existing GeoPackage in read-write mode with an explicit VFS.
+    ///
+    /// This is available only on wasm targets where custom SQLite VFS usage is
+    /// required (for example, a user-registered hybrid VFS).
+    #[cfg(target_family = "wasm")]
+    pub(crate) fn open_with_vfs<P: AsRef<Path>>(path: P, vfs_name: &str) -> Result<Self> {
+        let path = path.as_ref();
+        let is_existing = path.exists();
+
+        let conn = rusqlite_open_path_with_vfs(path, rusqlite::OpenFlags::default(), vfs_name)?;
+
+        if !is_existing {
+            initialize_gpkg(&conn)?;
+        }
+
+        Self::new_from_conn(Rc::new(conn), false)
+    }
+
+    /// Open a new or existing GeoPackage in read-write mode with a custom writer.
+    ///
+    /// This is available only on wasm targets. It uses the Hybrid VFS internally
+    /// and reuses a default VFS registration across calls.
+    #[cfg(target_family = "wasm")]
+    pub fn open_with_writer<P: AsRef<Path>, W: Write + 'static>(
+        path: P,
+        writer: W,
+    ) -> Result<Self> {
+        HybridVfsBuilder::new(writer).open_gpkg(path)
     }
 
     /// Create a new GeoPackage in memory.
