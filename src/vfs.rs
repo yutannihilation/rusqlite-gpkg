@@ -5,8 +5,8 @@
 //! - This VFS intentionally does not validate filename intent.
 
 use sqlite_wasm_rs::utils::{
-    RegisterVfsError, SQLiteIoMethods, SQLiteVfs, SQLiteVfsFile, VfsError, VfsFile, VfsResult,
-    VfsStore,
+    OsCallback, RegisterVfsError, SQLiteIoMethods, SQLiteVfs, SQLiteVfsFile, VfsError, VfsFile,
+    VfsResult, VfsStore,
     ffi::{
         SQLITE_IOERR, SQLITE_IOERR_DELETE, SQLITE_IOERR_READ, SQLITE_IOERR_WRITE, SQLITE_OK,
         sqlite3_file, sqlite3_vfs,
