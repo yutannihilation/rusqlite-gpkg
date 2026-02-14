@@ -21,6 +21,9 @@ arrow-schema = { version = "57.2.0", optional = true }
 geoarrow-schema = { version = "0.7.0", optional = true }
 geoarrow-array = { version = "0.7.0", optional = true }
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+sqlite-wasm-rs = "0.5.2"
+
 
 [features]
 wkt = ["dep:wkt"]
