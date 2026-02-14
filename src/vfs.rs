@@ -284,12 +284,12 @@ impl SQLiteIoMethods for HybridIoMethods {
     const VERSION: ::std::os::raw::c_int = 1;
 
     unsafe extern "C" fn xCheckReservedLock(
-        _pFile: *mut sqlite3_file,
-        pResOut: *mut ::std::os::raw::c_int,
+        _p_file: *mut sqlite3_file,
+        p_res_out: *mut ::std::os::raw::c_int,
     ) -> ::std::os::raw::c_int {
-        if !pResOut.is_null() {
+        if !p_res_out.is_null() {
             unsafe {
-                *pResOut = 1;
+                *p_res_out = 1;
             }
         }
         SQLITE_OK
@@ -311,5 +311,95 @@ impl SQLiteVfs<HybridIoMethods> for HybridVfs {
 
     fn epoch_timestamp_in_ms() -> i64 {
         sqlite_wasm_rs::WasmOsCallback::epoch_timestamp_in_ms()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{self, Write};
+
+    #[derive(Default, Clone)]
+    struct RecordingState {
+        writes: Vec<u8>,
+        flush_count: usize,
+    }
+
+    struct RecordingWriter {
+        state: Rc<RefCell<RecordingState>>,
+    }
+
+    impl RecordingWriter {
+        fn new(state: Rc<RefCell<RecordingState>>) -> Self {
+            Self { state }
+        }
+    }
+
+    impl Write for RecordingWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.state.borrow_mut().writes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            self.state.borrow_mut().flush_count += 1;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn identifies_main_sqlite_file_by_suffix() {
+        assert!(is_main_sqlite_file("data.sqlite"));
+        assert!(!is_main_sqlite_file("data.sqlite-wal"));
+        assert!(!is_main_sqlite_file("data.gpkg"));
+    }
+
+    #[test]
+    fn mem_file_read_pads_with_zero_when_beyond_end() {
+        let mut file = MemFile::default();
+        file.write(&[1, 2, 3], 0).expect("write should succeed");
+
+        let mut buf = [9_u8; 5];
+        let complete = file.read(&mut buf, 1).expect("read should succeed");
+
+        assert!(!complete);
+        assert_eq!(buf, [2, 3, 0, 0, 0]);
+    }
+
+    #[test]
+    fn mem_file_supports_offset_write_and_truncate() {
+        let mut file = MemFile::default();
+        file.write(&[10, 20], 2).expect("write should succeed");
+        assert_eq!(file.size().expect("size should succeed"), 4);
+
+        let mut buf = [0_u8; 4];
+        let complete = file.read(&mut buf, 0).expect("read should succeed");
+        assert!(complete);
+        assert_eq!(buf, [0, 0, 10, 20]);
+
+        file.truncate(3).expect("truncate should succeed");
+        assert_eq!(file.size().expect("size should succeed"), 3);
+    }
+
+    #[test]
+    fn main_file_writes_forward_to_writer_and_flushes() {
+        let state = Rc::new(RefCell::new(RecordingState::default()));
+        let writer: SharedWriter =
+            Rc::new(RefCell::new(Box::new(RecordingWriter::new(state.clone()))));
+        let mut file = MainFile::new(writer.clone());
+
+        file.write(&[1, 2, 3], 0).expect("write should succeed");
+        file.write(&[9], 1).expect("write should succeed");
+        file.flush().expect("flush should succeed");
+
+        let mut buf = [0_u8; 4];
+        let complete = file.read(&mut buf, 0).expect("read should succeed");
+        assert!(!complete);
+        assert_eq!(buf, [1, 9, 3, 0]);
+        assert_eq!(file.size().expect("size should succeed"), 3);
+
+        let state = state.borrow();
+        assert_eq!(state.writes, vec![1, 2, 3, 9]);
+        assert_eq!(state.flush_count, 1);
     }
 }
