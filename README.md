@@ -8,9 +8,10 @@ GeoPackage reader/writer built on top of [rusqlite](https://crates.io/crates/rus
 
 ## Web Demo
 
-A simple GitHub Pages demo is available under `web/` with a button to generate
+A simple GitHub Pages demo is available with a button to generate
 and download a `.gpkg` file in the browser using a Web Worker + OPFS.
-Deployment is configured in `.github/workflows/pages-demo.yml`.
+
+https://yutannihilation.github.io/rusqlite-gpkg/
 
 ## Overview
 
