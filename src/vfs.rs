@@ -17,6 +17,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
+use std::time::Duration;
 
 type SharedWriter = Rc<RefCell<Box<dyn Write>>>;
 type HybridAppData = RefCell<HybridState>;
@@ -286,7 +287,11 @@ impl SQLiteIoMethods for HybridIoMethods {
         _pFile: *mut sqlite3_file,
         pResOut: *mut ::std::os::raw::c_int,
     ) -> ::std::os::raw::c_int {
-        *pResOut = 1;
+        if !pResOut.is_null() {
+            unsafe {
+                *pResOut = 1;
+            }
+        }
         SQLITE_OK
     }
 }
@@ -295,4 +300,16 @@ struct HybridVfs;
 
 impl SQLiteVfs<HybridIoMethods> for HybridVfs {
     const VERSION: ::std::os::raw::c_int = 1;
+
+    fn sleep(dur: Duration) {
+        sqlite_wasm_rs::WasmOsCallback::sleep(dur);
+    }
+
+    fn random(buf: &mut [u8]) {
+        sqlite_wasm_rs::WasmOsCallback::random(buf);
+    }
+
+    fn epoch_timestamp_in_ms() -> i64 {
+        sqlite_wasm_rs::WasmOsCallback::epoch_timestamp_in_ms()
+    }
 }
