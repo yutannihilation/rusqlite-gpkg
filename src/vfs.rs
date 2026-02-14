@@ -4,6 +4,7 @@
 //! - Writes to all other files (for example `-wal`, `-shm`) stay in memory.
 //! - This VFS intentionally does not validate filename intent.
 
+use crate::{Gpkg, GpkgError, Result as CrateResult};
 use sqlite_wasm_rs::utils::{
     OsCallback, RegisterVfsError, SQLiteIoMethods, SQLiteVfs, SQLiteVfsFile, VfsError, VfsFile,
     VfsResult, VfsStore,
@@ -16,15 +17,26 @@ use sqlite_wasm_rs::utils::{
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
+use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
 type SharedWriter = Rc<RefCell<Box<dyn Write>>>;
 type HybridAppData = RefCell<HybridState>;
 
+thread_local! {
+    static DEFAULT_HYBRID_VFS: RefCell<Option<HybridVfsHandle>> = const { RefCell::new(None) };
+}
+
 /// Builder that holds the writer used for main `.sqlite` file writes.
 pub struct HybridVfsBuilder {
     writer: Box<dyn Write>,
+}
+
+#[derive(Clone)]
+pub struct HybridVfsHandle {
+    vfs_name: String,
+    writer: SharedWriter,
 }
 
 impl HybridVfsBuilder {
@@ -45,7 +57,67 @@ impl HybridVfsBuilder {
             files: HashMap::new(),
             writer: Rc::new(RefCell::new(self.writer)),
         };
-        register_vfs::<HybridIoMethods, HybridVfs>(vfs_name, RefCell::new(state), default_vfs)
+        register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, RefCell::new(state), default_vfs)
+    }
+
+    /// Register a reusable Hybrid VFS and return a handle that can replace writers.
+    pub fn register_reusable(
+        self,
+        vfs_name: &str,
+        default_vfs: bool,
+    ) -> Result<HybridVfsHandle, RegisterVfsError> {
+        let writer: SharedWriter = Rc::new(RefCell::new(self.writer));
+        let state = HybridState {
+            files: HashMap::new(),
+            writer: writer.clone(),
+        };
+        register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, RefCell::new(state), default_vfs)?;
+        Ok(HybridVfsHandle {
+            vfs_name: vfs_name.to_string(),
+            writer,
+        })
+    }
+
+    /// Convenience helper for wasm: register/reuse a default hybrid VFS and open a GeoPackage.
+    ///
+    /// On first use, this registers a process-local default VFS. On subsequent calls,
+    /// it reuses the same registration and only replaces the writer.
+    ///
+    /// `sqlite_filename` must end with `.sqlite` so main DB writes are routed to
+    /// the provided writer.
+    pub fn open_gpkg<P: AsRef<Path>>(self, sqlite_filename: P) -> CrateResult<Gpkg> {
+        let writer = self.writer;
+        let handle = DEFAULT_HYBRID_VFS.with(|slot| -> CrateResult<HybridVfsHandle> {
+            let mut slot = slot.borrow_mut();
+            if let Some(handle) = slot.as_ref() {
+                handle.replace_boxed_writer(writer);
+                return Ok(handle.clone());
+            }
+
+            let vfs = HybridVfsBuilder { writer }
+                .register_reusable("hybrid-opfs-default", false)
+                .map_err(|e| GpkgError::Vfs(format!("{e}")))?;
+            *slot = Some(vfs.clone());
+            Ok(vfs)
+        })?;
+
+        handle.open_gpkg(sqlite_filename)
+    }
+}
+
+impl HybridVfsHandle {
+    /// Replace the writer used for main `.sqlite` file writes.
+    pub fn replace_writer<W: Write + 'static>(&self, writer: W) {
+        self.replace_boxed_writer(Box::new(writer));
+    }
+
+    fn replace_boxed_writer(&self, writer: Box<dyn Write>) {
+        *self.writer.borrow_mut() = writer;
+    }
+
+    /// Open a GeoPackage using this registered Hybrid VFS.
+    pub fn open_gpkg<P: AsRef<Path>>(&self, sqlite_filename: P) -> CrateResult<Gpkg> {
+        Gpkg::open_with_vfs(sqlite_filename, &self.vfs_name)
     }
 }
 
@@ -296,9 +368,9 @@ impl SQLiteIoMethods for HybridIoMethods {
     }
 }
 
-struct HybridVfs;
+struct HybridVfsImpl;
 
-impl SQLiteVfs<HybridIoMethods> for HybridVfs {
+impl SQLiteVfs<HybridIoMethods> for HybridVfsImpl {
     const VERSION: ::std::os::raw::c_int = 1;
 
     fn sleep(dur: Duration) {

@@ -33,9 +33,9 @@ Why this demo uses Hybrid VFS:
   (`OpfsFile` here) while keeping sidecar files in memory.
 - This is useful when you want explicit control of where bytes go during
   generation, and when you want to connect custom browser storage flows.
-- In this demo, we register a named VFS and open the database with
-  `Gpkg::open_with_vfs("demo.sqlite", vfs_name)` so writes to the `.sqlite`
-  file go to OPFS.
+- In this demo, `Gpkg::open_with_writer("demo.sqlite", writer)` handles this
+  internally: it uses Hybrid VFS, registers a default VFS on first use, then
+  reuses that registration and replaces the writer on later calls.
 
 Alternative design: memory-only then serialize:
 

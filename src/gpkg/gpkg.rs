@@ -10,7 +10,11 @@ use crate::ogc_sql::{
 };
 use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, GpkgLayerMetadata};
+#[cfg(target_family = "wasm")]
+use crate::vfs::HybridVfsBuilder;
 use rusqlite::OpenFlags;
+#[cfg(target_family = "wasm")]
+use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -97,7 +101,7 @@ impl Gpkg {
     /// This is available only on wasm targets where custom SQLite VFS usage is
     /// required (for example, a user-registered hybrid VFS).
     #[cfg(target_family = "wasm")]
-    pub fn open_with_vfs<P: AsRef<Path>>(path: P, vfs_name: &str) -> Result<Self> {
+    pub(crate) fn open_with_vfs<P: AsRef<Path>>(path: P, vfs_name: &str) -> Result<Self> {
         let path = path.as_ref();
         let is_existing = path.exists();
 
@@ -108,6 +112,18 @@ impl Gpkg {
         }
 
         Self::new_from_conn(Rc::new(conn), false)
+    }
+
+    /// Open a new or existing GeoPackage in read-write mode with a custom writer.
+    ///
+    /// This is available only on wasm targets. It uses the Hybrid VFS internally
+    /// and reuses a default VFS registration across calls.
+    #[cfg(target_family = "wasm")]
+    pub fn open_with_writer<P: AsRef<Path>, W: Write + 'static>(
+        path: P,
+        writer: W,
+    ) -> Result<Self> {
+        HybridVfsBuilder::new(writer).open_gpkg(path)
     }
 
     /// Create a new GeoPackage in memory.

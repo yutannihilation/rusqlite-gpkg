@@ -41,7 +41,10 @@ self.onmessage = async (event) => {
     const opfsRoot = await navigator.storage.getDirectory();
     const filename = `example_${safePointCount}.gpkg`;
     const fileHandle = await opfsRoot.getFileHandle(filename, { create: true });
-    // Sync handle is required by our Rust OpfsFile bridge.
+    // Design note:
+    // We intentionally create a fresh sync handle per generation run.
+    // Reusing one handle can be brittle because handle lifecycle/closure can happen
+    // across JS/Rust boundaries. The VFS registration is reused, but file handles are not.
     const accessHandle = await fileHandle.createSyncAccessHandle();
 
     try {

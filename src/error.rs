@@ -78,6 +78,8 @@ pub enum GpkgError {
     },
     /// A feature row has a `NULL` geometry value.
     NullGeometryValue,
+    /// Hybrid/custom VFS registration or usage failed.
+    Vfs(String),
     /// Arrow reader observed a value type that did not match the expected Arrow builder type.
     #[cfg(feature = "arrow")]
     InvalidArrowValue {
@@ -149,6 +151,7 @@ impl fmt::Display for GpkgError {
                 write!(f, "no geometry column found for layer: {layer_name}")
             }
             Self::NullGeometryValue => write!(f, "feature has null geometry value"),
+            Self::Vfs(err) => write!(f, "vfs error: {err}"),
             #[cfg(feature = "arrow")]
             Self::InvalidArrowValue { expected, actual } => {
                 write!(
