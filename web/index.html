@@ -9,11 +9,13 @@
   <body>
     <main class="container">
       <h1>rusqlite-gpkg Web Demo</h1>
+      <!-- This page intentionally keeps UI minimal and moves heavy work to a Worker. -->
       <p>Generate a GeoPackage with random points in the browser and download it.</p>
       <p>
         API reference:
         <a href="https://docs.rs/rusqlite-gpkg/latest/rusqlite_gpkg/" target="_blank" rel="noopener noreferrer">docs.rs/rusqlite-gpkg</a>
       </p>
+      <!-- The selected value is sent to worker.js and forwarded into Rust/WASM. -->
       <label for="point-count">Number of points</label>
       <select id="point-count">
         <option value="100">100 (tiny)</option>

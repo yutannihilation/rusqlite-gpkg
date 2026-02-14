@@ -1,8 +1,12 @@
 use wasm_bindgen::JsValue;
 use web_sys::FileSystemReadWriteOptions;
 
+/// Adapter from OPFS sync handle to Rust `Read`/`Write`/`Seek`.
+///
+/// This is used as the sink/source for HybridVfs in browser workers.
 pub struct OpfsFile {
     file: web_sys::FileSystemSyncAccessHandle,
+    // Browser API stores offset inside a JS options object (`{ at: ... }`).
     offset: FileSystemReadWriteOptions,
 }
 
@@ -12,6 +16,7 @@ unsafe impl std::marker::Send for OpfsFile {}
 
 impl OpfsFile {
     pub fn new(file: web_sys::FileSystemSyncAccessHandle) -> Result<Self, String> {
+        // This demo always overwrites output from scratch.
         file.truncate_with_u32(0).map_err(|e| format!("{e:?}"))?;
 
         Ok(Self {
@@ -23,6 +28,7 @@ impl OpfsFile {
 
 impl std::io::Write for OpfsFile {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        // Write at current logical offset and then advance it.
         let size = self
             .file
             .write_with_u8_array_and_options(buf, &self.offset)
@@ -42,6 +48,7 @@ impl std::io::Write for OpfsFile {
 
 impl std::io::Read for OpfsFile {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // Read at current logical offset and then advance it.
         let size = self
             .file
             .read_with_u8_array_and_options(buf, &self.offset)
@@ -72,6 +79,7 @@ impl std::io::Seek for OpfsFile {
             ));
         }
 
+        // Clamp to file size to keep behavior predictable in this demo.
         let new_offset = std::cmp::min(new_offset, size) as u64;
         self.offset.set_at(new_offset as f64);
 
@@ -81,6 +89,7 @@ impl std::io::Seek for OpfsFile {
 
 impl Drop for OpfsFile {
     fn drop(&mut self) {
+        // Safe to call repeatedly from JS+Rust boundaries; JS may already close.
         self.file.close();
     }
 }

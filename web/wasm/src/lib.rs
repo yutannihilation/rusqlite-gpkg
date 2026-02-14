@@ -2,14 +2,25 @@ mod io;
 
 use geo_types::Point;
 use io::OpfsFile;
-use rusqlite_gpkg::{ColumnSpec, ColumnType, Dimension, GeometryType, Gpkg, HybridVfsBuilder, params};
+use rusqlite_gpkg::{
+    ColumnSpec, ColumnType, Dimension, GeometryType, Gpkg, HybridVfsBuilder, params,
+};
 use std::cell::Cell;
 use wasm_bindgen::prelude::*;
 
+// In a long-lived worker, ensure each registration gets a unique VFS name.
 thread_local! {
     static NEXT_VFS_ID: Cell<u32> = const { Cell::new(0) };
 }
 
+/// Generate a demo GeoPackage and write it to an OPFS sync access handle.
+///
+/// Flow:
+/// 1) Wrap OPFS handle as `std::io::Write` (`OpfsFile`).
+/// 2) Register `HybridVfsBuilder` with that writer.
+/// 3) Open sqlite through that VFS (`Gpkg::open_with_vfs`).
+/// 4) Insert pseudo-random points.
+/// 5) Return inserted count so JS can display progress.
 #[wasm_bindgen]
 pub fn generate_gpkg_to_opfs(
     output_file: web_sys::FileSystemSyncAccessHandle,
@@ -25,9 +36,9 @@ pub fn generate_gpkg_to_opfs(
         .register(&vfs_name, false)
         .map_err(|e| JsValue::from_str(&format!("{e}")))?;
 
-    // The main file must end with `.sqlite` so HybridVfs routes it to the writer.
-    let gpkg =
-        Gpkg::open_with_vfs("demo.sqlite", &vfs_name).map_err(|e| JsValue::from_str(&format!("{e}")))?;
+    // The filename must end with `.sqlite` so HybridVfs routes writes to `MainFile`.
+    let gpkg = Gpkg::open_with_vfs("demo.sqlite", &vfs_name)
+        .map_err(|e| JsValue::from_str(&format!("{e}")))?;
 
     let columns = vec![ColumnSpec {
         name: "value".to_string(),
@@ -45,7 +56,7 @@ pub fn generate_gpkg_to_opfs(
         )
         .map_err(|e| JsValue::from_str(&format!("{e}")))?;
 
-    // Small fast deterministic PRNG so we don't need an extra dependency.
+    // Deterministic PRNG for reproducible demo output without extra deps.
     let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
     for i in 0..point_count {
         state ^= state << 7;
