@@ -44,12 +44,7 @@ impl GpkgFeature {
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn geometry(&self) -> Result<Wkb<'_>> {
-        let bytes = self
-            .geometry
-            .as_ref()
-            .ok_or_else(|| GpkgError::MissingGeometryColumn {
-                layer_name: "feature row".to_string(),
-            })?;
+        let bytes = self.geometry.as_ref().ok_or(GpkgError::NullGeometryValue)?;
         gpkg_geometry_to_wkb(bytes)
     }
 
@@ -185,6 +180,31 @@ mod tests {
         assert!(matches!(
             result,
             Err(crate::error::GpkgError::InvalidGpkgGeometryFlags(_))
+        ));
+    }
+
+    #[test]
+    fn gpkg_geometry_rejects_too_short_header() {
+        let blob = vec![0x47, 0x50, 0x00, 0x01, 0, 0, 0];
+        let result = gpkg_geometry_to_wkb(&blob);
+        assert!(matches!(
+            result,
+            Err(crate::error::GpkgError::InvalidGpkgGeometryLength { len: 7, minimum: 8 })
+        ));
+    }
+
+    #[test]
+    fn gpkg_geometry_rejects_too_short_envelope_payload() {
+        // Flags 0x08 => envelope type code 4 (64-byte envelope), so total required is 72 bytes.
+        let mut blob = vec![0x47, 0x50, 0x00, 0x08, 0, 0, 0, 0];
+        blob.extend_from_slice(&[0; 32]);
+        let result = gpkg_geometry_to_wkb(&blob);
+        assert!(matches!(
+            result,
+            Err(crate::error::GpkgError::InvalidGpkgGeometryEnvelope {
+                len: 40,
+                required: 72
+            })
         ));
     }
 

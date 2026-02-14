@@ -76,6 +76,8 @@ pub enum GpkgError {
     MissingGeometryColumn {
         layer_name: String,
     },
+    /// A feature row has a `NULL` geometry value.
+    NullGeometryValue,
     /// Arrow reader observed a value type that did not match the expected Arrow builder type.
     #[cfg(feature = "arrow")]
     InvalidArrowValue {
@@ -146,6 +148,7 @@ impl fmt::Display for GpkgError {
             Self::MissingGeometryColumn { layer_name } => {
                 write!(f, "no geometry column found for layer: {layer_name}")
             }
+            Self::NullGeometryValue => write!(f, "feature has null geometry value"),
             #[cfg(feature = "arrow")]
             Self::InvalidArrowValue { expected, actual } => {
                 write!(
