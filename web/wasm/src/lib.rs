@@ -26,7 +26,7 @@ pub fn generate_gpkg_to_opfs(
     let layer = gpkg
         .create_layer(
             "points",
-            "geom".to_string(),
+            "geom",
             GeometryType::Point,
             Dimension::Xy,
             4326,

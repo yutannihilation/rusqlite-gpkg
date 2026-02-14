@@ -33,16 +33,17 @@ self.onmessage = async (event) => {
 
     try {
       generate_gpkg_to_opfs(accessHandle);
-
-      const size = accessHandle.getSize();
-      const bytes = new Uint8Array(size);
-      const readSize = accessHandle.read(bytes, { at: 0 });
-      const out = bytes.slice(0, readSize);
-
-      postMessage({ type: 'done', filename, bytes: out.buffer }, [out.buffer]);
     } finally {
-      accessHandle.close();
+      try {
+        accessHandle.close();
+      } catch (_) {
+        // The handle may already be closed by Rust code.
+      }
     }
+
+    const outputFile = await fileHandle.getFile();
+    const out = await outputFile.arrayBuffer();
+    postMessage({ type: 'done', filename, bytes: out }, [out]);
   } catch (error) {
     postMessage({ type: 'error', message: String(error) });
   }

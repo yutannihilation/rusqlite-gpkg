@@ -9,4 +9,6 @@ references
 
 # web demo build artifacts
 web/pkg
+web/wasm/target
+web/wasm/Cargo.lock
 web-dist
