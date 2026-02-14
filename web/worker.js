@@ -17,6 +17,9 @@ self.onmessage = async (event) => {
   if (data?.type !== 'generate') {
     return;
   }
+  const pointCount = Number(data?.pointCount ?? 100000);
+  const safePointCount =
+    Number.isFinite(pointCount) && pointCount > 0 ? Math.floor(pointCount) : 100000;
 
   if (!ready) {
     postMessage({ type: 'error', message: 'Worker is not ready yet.' });
@@ -24,15 +27,16 @@ self.onmessage = async (event) => {
   }
 
   try {
-    postMessage({ type: 'started' });
+    postMessage({ type: 'started', pointCount: safePointCount });
 
     const opfsRoot = await navigator.storage.getDirectory();
-    const filename = 'example.gpkg';
+    const filename = `example_${safePointCount}.gpkg`;
     const fileHandle = await opfsRoot.getFileHandle(filename, { create: true });
     const accessHandle = await fileHandle.createSyncAccessHandle();
 
     try {
-      generate_gpkg_to_opfs(accessHandle);
+      const insertedCount = generate_gpkg_to_opfs(accessHandle, safePointCount);
+      postMessage({ type: 'progress', insertedCount });
     } finally {
       try {
         accessHandle.close();
@@ -43,7 +47,7 @@ self.onmessage = async (event) => {
 
     const outputFile = await fileHandle.getFile();
     const out = await outputFile.arrayBuffer();
-    postMessage({ type: 'done', filename, bytes: out }, [out]);
+    postMessage({ type: 'done', filename, bytes: out, pointCount: safePointCount }, [out]);
   } catch (error) {
     postMessage({ type: 'error', message: String(error) });
   }
