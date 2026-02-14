@@ -6,6 +6,7 @@ edition = "2024"
 authors = ["Hiroaki Yutani"]
 license = "MIT"
 repository = "https://github.com/yutannihilation/rusqlite-gpkg/"
+exclude = ["web/**", "web-dist/**"]
 
 [dependencies]
 geo-traits = { version = "0.3.0", default-features = false }
