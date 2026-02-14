@@ -40,6 +40,15 @@ fn rusqlite_open_path<P: AsRef<Path>>(
     rusqlite::Connection::open_with_flags_and_vfs(path, flags, "opfs-sahpool")
 }
 
+#[cfg(target_family = "wasm")]
+fn rusqlite_open_path_with_vfs<P: AsRef<Path>>(
+    path: P,
+    flags: rusqlite::OpenFlags,
+    vfs_name: &str,
+) -> rusqlite::Result<rusqlite::Connection> {
+    rusqlite::Connection::open_with_flags_and_vfs(path, flags, vfs_name)
+}
+
 impl Gpkg {
     pub(crate) fn new_from_conn(conn: Rc<rusqlite::Connection>, read_only: bool) -> Result<Self> {
         register_spatial_functions(&conn)?;
@@ -76,6 +85,24 @@ impl Gpkg {
         let conn = rusqlite_open_path(path, rusqlite::OpenFlags::default())?;
 
         // In the case of new file, initialize it
+        if !is_existing {
+            initialize_gpkg(&conn)?;
+        }
+
+        Self::new_from_conn(Rc::new(conn), false)
+    }
+
+    /// Open a new or existing GeoPackage in read-write mode with an explicit VFS.
+    ///
+    /// This is available only on wasm targets where custom SQLite VFS usage is
+    /// required (for example, a user-registered hybrid VFS).
+    #[cfg(target_family = "wasm")]
+    pub fn open_with_vfs<P: AsRef<Path>>(path: P, vfs_name: &str) -> Result<Self> {
+        let path = path.as_ref();
+        let is_existing = path.exists();
+
+        let conn = rusqlite_open_path_with_vfs(path, rusqlite::OpenFlags::default(), vfs_name)?;
+
         if !is_existing {
             initialize_gpkg(&conn)?;
         }
