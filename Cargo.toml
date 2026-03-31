@@ -10,7 +10,7 @@ include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md"]
 
 [dependencies]
 geo-traits = { version = "0.3.0", default-features = false }
-rusqlite = { version = "0.38.0", features = ["bundled", "functions", "serialize"] }
+rusqlite = { version = "0.39.0", features = ["bundled", "functions", "serialize"] }
 wkb = "0.9.2"
 
 # For examples
