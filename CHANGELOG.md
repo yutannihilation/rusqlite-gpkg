@@ -3,6 +3,8 @@
 <!-- next-header -->
 ## [Unreleased] (ReleaseDate)
 
+## [v0.0.5] (2026-04-02)
+
 ### Added
 
 - Support `DATE` and `DATETIME` column types as defined in the GeoPackage specification. Values are stored as ISO 8601 TEXT (`YYYY-MM-DD` for DATE, `YYYY-MM-DDTHH:MM:SS.SSSZ` for DATETIME) and represented as `Value::Text` at the value level.
@@ -22,5 +24,6 @@
 - Define finer-grained `GpkgError` enum variants so callers can handle failure modes more precisely.
 
 <!-- next-url -->
-[Unreleased]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.5...HEAD
+[v0.0.5]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.4...v0.0.5
 [v0.0.4]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.3...v0.0.4
