@@ -9,7 +9,7 @@
 
 - Support `DATE` and `DATETIME` column types as defined in the GeoPackage specification. Values are stored as ISO 8601 TEXT (`YYYY-MM-DD` for DATE, `YYYY-MM-DDTHH:MM:SS.SSSZ` for DATETIME) and represented as `Value::Text` at the value level.
 
-## [0.0.4] (2026-02-14)
+## [v0.0.4] (2026-02-14)
 
 ### Added
 
