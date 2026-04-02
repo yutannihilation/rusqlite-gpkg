@@ -15,6 +15,10 @@ pub enum ColumnType {
     Integer,
     /// Geometry column stored as a GeoPackage BLOB.
     Geometry,
+    /// ISO 8601 date stored as TEXT (`YYYY-MM-DD`).
+    Date,
+    /// ISO 8601 date-time stored as TEXT (`YYYY-MM-DDTHH:MM:SS.SSSZ`).
+    Datetime,
 }
 
 /// Column definition used when creating or describing layer properties.

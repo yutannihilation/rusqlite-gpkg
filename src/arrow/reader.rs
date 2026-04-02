@@ -91,6 +91,9 @@ impl<'a> ArrowGpkgReader<'a> {
                     crate::ColumnType::Integer => {
                         arrow_schema::Field::new(&col.name, arrow_schema::DataType::Int64, true)
                     }
+                    crate::ColumnType::Date | crate::ColumnType::Datetime => {
+                        arrow_schema::Field::new(&col.name, arrow_schema::DataType::Utf8, true)
+                    }
                     crate::ColumnType::Geometry => {
                         wkb_geometry_field(&col.name, srs_id.to_string())
                     }
@@ -109,30 +112,37 @@ impl<'a> ArrowGpkgReader<'a> {
     }
 
     fn create_record_batch_builder(&self) -> GpkgRecordBatchBuilder {
-        let builders: Vec<GpkgArrayBuilder> =
-            self.property_columns
-                .iter()
-                .map(|col| match col.column_type {
-                    crate::ColumnType::Boolean => GpkgArrayBuilder::Boolean(
-                        arrow_array::builder::BooleanBuilder::with_capacity(self.batch_size),
-                    ),
-                    crate::ColumnType::Varchar => GpkgArrayBuilder::Varchar(
-                        arrow_array::builder::StringBuilder::with_capacity(
-                            self.batch_size,
-                            8 * self.batch_size,
-                        ),
-                    ),
-                    crate::ColumnType::Double => GpkgArrayBuilder::Double(
-                        arrow_array::builder::Float64Builder::with_capacity(self.batch_size),
-                    ),
-                    crate::ColumnType::Integer => GpkgArrayBuilder::Integer(
-                        arrow_array::builder::Int64Builder::with_capacity(self.batch_size),
-                    ),
-                    crate::ColumnType::Geometry => GpkgArrayBuilder::Geometry(
-                        wkb_geometry_builder(self.srs_id.to_string(), self.batch_size),
-                    ),
-                })
-                .collect();
+        let builders: Vec<GpkgArrayBuilder> = self
+            .property_columns
+            .iter()
+            .map(|col| match col.column_type {
+                crate::ColumnType::Boolean => GpkgArrayBuilder::Boolean(
+                    arrow_array::builder::BooleanBuilder::with_capacity(self.batch_size),
+                ),
+                crate::ColumnType::Varchar => {
+                    GpkgArrayBuilder::Varchar(arrow_array::builder::StringBuilder::with_capacity(
+                        self.batch_size,
+                        8 * self.batch_size,
+                    ))
+                }
+                crate::ColumnType::Double => GpkgArrayBuilder::Double(
+                    arrow_array::builder::Float64Builder::with_capacity(self.batch_size),
+                ),
+                crate::ColumnType::Integer => GpkgArrayBuilder::Integer(
+                    arrow_array::builder::Int64Builder::with_capacity(self.batch_size),
+                ),
+                crate::ColumnType::Date | crate::ColumnType::Datetime => {
+                    GpkgArrayBuilder::Varchar(arrow_array::builder::StringBuilder::with_capacity(
+                        self.batch_size,
+                        8 * self.batch_size,
+                    ))
+                }
+                crate::ColumnType::Geometry => GpkgArrayBuilder::Geometry(wkb_geometry_builder(
+                    self.srs_id.to_string(),
+                    self.batch_size,
+                )),
+            })
+            .collect();
 
         GpkgRecordBatchBuilder {
             schema_ref: self.schema_ref.clone(),
@@ -468,6 +478,60 @@ mod tests {
         let mut expected = Vec::new();
         wkb::writer::write_geometry(&mut expected, &Point::new(1.0, 2.0), &Default::default())?;
         assert_eq!(geom.buf(), expected.as_slice());
+
+        Ok(())
+    }
+
+    #[test]
+    fn record_batch_reads_date_and_datetime_columns() -> Result<()> {
+        let gpkg = Gpkg::open_in_memory()?;
+        let columns = vec![
+            ColumnSpec {
+                name: "d".to_string(),
+                column_type: ColumnType::Date,
+            },
+            ColumnSpec {
+                name: "dt".to_string(),
+                column_type: ColumnType::Datetime,
+            },
+        ];
+
+        let layer = gpkg.create_layer(
+            "arrow_dates",
+            "geom",
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        layer.insert(
+            Point::new(1.0, 2.0),
+            params!["2024-01-15", "2024-01-15T10:30:00.000Z"],
+        )?;
+
+        let mut iter = ArrowGpkgReader::new(&gpkg, &layer.layer_name, 10)?;
+        let batch = iter.next().transpose()?.expect("first batch");
+
+        let schema = batch.schema();
+        let fields = schema.fields();
+        assert_eq!(fields[0].name(), "d");
+        assert_eq!(fields[0].data_type(), &DataType::Utf8);
+        assert_eq!(fields[1].name(), "dt");
+        assert_eq!(fields[1].data_type(), &DataType::Utf8);
+
+        let d = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("string array");
+        let dt = batch
+            .column(1)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("string array");
+        assert_eq!(d.value(0), "2024-01-15");
+        assert_eq!(dt.value(0), "2024-01-15T10:30:00.000Z");
 
         Ok(())
     }
