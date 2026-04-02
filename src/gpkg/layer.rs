@@ -761,6 +761,61 @@ mod tests {
     }
 
     #[test]
+    fn roundtrips_date_and_datetime_columns() -> Result<()> {
+        let gpkg = Gpkg::open_in_memory()?;
+        let columns = vec![
+            ColumnSpec {
+                name: "created_date".to_string(),
+                column_type: ColumnType::Date,
+            },
+            ColumnSpec {
+                name: "updated_at".to_string(),
+                column_type: ColumnType::Datetime,
+            },
+        ];
+
+        let layer = gpkg.create_layer(
+            "dated_points",
+            "geom",
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        layer.insert(
+            Point::new(1.0, 2.0),
+            params!["2024-01-15", "2024-01-15T10:30:00.000Z"],
+        )?;
+
+        let features = layer.features()?;
+        assert_eq!(features.len(), 1);
+
+        let feature = &features[0];
+        let date: String = feature.property("created_date").unwrap().try_into()?;
+        let datetime: String = feature.property("updated_at").unwrap().try_into()?;
+        assert_eq!(date, "2024-01-15");
+        assert_eq!(datetime, "2024-01-15T10:30:00.000Z");
+
+        // Verify schema metadata round-trips through get_layer
+        let reloaded = gpkg.get_layer("dated_points")?;
+        let date_col = reloaded
+            .property_columns
+            .iter()
+            .find(|c| c.name == "created_date")
+            .unwrap();
+        let datetime_col = reloaded
+            .property_columns
+            .iter()
+            .find(|c| c.name == "updated_at")
+            .unwrap();
+        assert_eq!(date_col.column_type, ColumnType::Date);
+        assert_eq!(datetime_col.column_type, ColumnType::Datetime);
+
+        Ok(())
+    }
+
+    #[test]
     fn rejects_invalid_property_count() -> Result<()> {
         let gpkg = Gpkg::open_in_memory()?;
         let columns = vec![

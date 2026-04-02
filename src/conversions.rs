@@ -77,6 +77,8 @@ pub(crate) fn column_type_to_str(column_type: ColumnType) -> &'static str {
         ColumnType::Varchar => "TEXT",
         ColumnType::Boolean => "BOOLEAN",
         ColumnType::Geometry => "GEOMETRY",
+        ColumnType::Date => "DATE",
+        ColumnType::Datetime => "DATETIME",
     }
 }
 
@@ -99,6 +101,10 @@ pub(crate) fn column_type_from_str(column_type_str: &str) -> Option<ColumnType> 
         Some(ColumnType::Varchar)
     } else if s.eq_ignore_ascii_case("BOOLEAN") {
         Some(ColumnType::Boolean)
+    } else if s.eq_ignore_ascii_case("DATE") {
+        Some(ColumnType::Date)
+    } else if s.eq_ignore_ascii_case("DATETIME") {
+        Some(ColumnType::Datetime)
     } else if s.eq_ignore_ascii_case("BLOB") {
         Some(ColumnType::Geometry)
     } else if s.eq_ignore_ascii_case("GEOMETRY")
