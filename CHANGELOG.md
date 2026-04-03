@@ -3,6 +3,8 @@
 <!-- next-header -->
 ## [Unreleased] (ReleaseDate)
 
+## [v0.0.6] (2026-04-03)
+
 ### Added
 
 - Add `ColumnType::Blob` for raw binary data columns. Previously, `BLOB` columns were incorrectly mapped to `ColumnType::Geometry`; they are now correctly distinguished (#22).
@@ -28,6 +30,7 @@
 - Define finer-grained `GpkgError` enum variants so callers can handle failure modes more precisely.
 
 <!-- next-url -->
-[Unreleased]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.6...HEAD
+[v0.0.6]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.5...v0.0.6
 [v0.0.5]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.4...v0.0.5
 [v0.0.4]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.3...v0.0.4
