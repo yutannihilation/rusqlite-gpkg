@@ -324,7 +324,7 @@ impl Gpkg {
 
         let mut column_defs = Vec::with_capacity(other_column_specs.len() + 2);
         column_defs.push("fid INTEGER PRIMARY KEY AUTOINCREMENT".to_string());
-        column_defs.push(format!(r#""{}" BLOB"#, geometry_column));
+        column_defs.push(format!(r#""{}" {geometry_type_name}"#, geometry_column));
         for spec in other_column_specs {
             let col_type = column_type_to_str(spec.column_type);
             column_defs.push(format!(r#""{}" {col_type}"#, spec.name));
