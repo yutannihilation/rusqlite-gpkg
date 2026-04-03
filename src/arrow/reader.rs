@@ -94,6 +94,9 @@ impl<'a> ArrowGpkgReader<'a> {
                     crate::ColumnType::Date | crate::ColumnType::Datetime => {
                         arrow_schema::Field::new(&col.name, arrow_schema::DataType::Utf8, true)
                     }
+                    crate::ColumnType::Blob => {
+                        arrow_schema::Field::new(&col.name, arrow_schema::DataType::Binary, true)
+                    }
                     crate::ColumnType::Geometry => {
                         wkb_geometry_field(&col.name, srs_id.to_string())
                     }
@@ -133,6 +136,12 @@ impl<'a> ArrowGpkgReader<'a> {
                 ),
                 crate::ColumnType::Date | crate::ColumnType::Datetime => {
                     GpkgArrayBuilder::Varchar(arrow_array::builder::StringBuilder::with_capacity(
+                        self.batch_size,
+                        8 * self.batch_size,
+                    ))
+                }
+                crate::ColumnType::Blob => {
+                    GpkgArrayBuilder::Blob(arrow_array::builder::BinaryBuilder::with_capacity(
                         self.batch_size,
                         8 * self.batch_size,
                     ))
@@ -208,6 +217,7 @@ enum GpkgArrayBuilder {
     Varchar(arrow_array::builder::StringBuilder),
     Double(arrow_array::builder::Float64Builder),
     Integer(arrow_array::builder::Int64Builder),
+    Blob(arrow_array::builder::BinaryBuilder),
     // Note: Since WkbBuilder doesn't implement ArrayBuilder trait, we cannot use Box<dyn ArrayBuilder> to unify this
     Geometry(WkbBuilder<i32>),
 }
@@ -251,6 +261,16 @@ impl GpkgArrayBuilder {
                 other => {
                     return Err(GpkgError::InvalidArrowValue {
                         expected: "INTEGER or NULL",
+                        actual: rusqlite_value_type_name(&other),
+                    });
+                }
+            },
+            GpkgArrayBuilder::Blob(builder) => match value {
+                rusqlite::types::Value::Null => builder.append_null(),
+                rusqlite::types::Value::Blob(b) => builder.append_value(b),
+                other => {
+                    return Err(GpkgError::InvalidArrowValue {
+                        expected: "BLOB or NULL",
                         actual: rusqlite_value_type_name(&other),
                     });
                 }
@@ -334,6 +354,9 @@ impl GpkgRecordBatchBuilder {
                     arrow_array::builder::ArrayBuilder::finish(&mut builder)
                 }
                 GpkgArrayBuilder::Integer(mut builder) => {
+                    arrow_array::builder::ArrayBuilder::finish(&mut builder)
+                }
+                GpkgArrayBuilder::Blob(mut builder) => {
                     arrow_array::builder::ArrayBuilder::finish(&mut builder)
                 }
                 GpkgArrayBuilder::Geometry(builder) => builder.finish().into_array_ref(),
