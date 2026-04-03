@@ -816,6 +816,44 @@ mod tests {
     }
 
     #[test]
+    fn roundtrips_blob_column() -> Result<()> {
+        let gpkg = Gpkg::open_in_memory()?;
+        let columns = vec![ColumnSpec {
+            name: "data".to_string(),
+            column_type: ColumnType::Blob,
+        }];
+
+        let layer = gpkg.create_layer(
+            "blob_points",
+            "geom",
+            GeometryType::Point,
+            wkb::reader::Dimension::Xy,
+            4326,
+            &columns,
+        )?;
+
+        let blob = vec![0x01u8, 0x02, 0x03];
+        layer.insert(Point::new(1.0, 2.0), params![Value::Blob(blob.clone())])?;
+
+        let features = layer.features()?;
+        assert_eq!(features.len(), 1);
+
+        let feature = &features[0];
+        assert!(matches!(feature.property("data"), Some(Value::Blob(_))));
+
+        // Verify schema metadata round-trips through get_layer
+        let reloaded = gpkg.get_layer("blob_points")?;
+        let col = reloaded
+            .property_columns
+            .iter()
+            .find(|c| c.name == "data")
+            .unwrap();
+        assert_eq!(col.column_type, ColumnType::Blob);
+
+        Ok(())
+    }
+
+    #[test]
     fn rejects_invalid_property_count() -> Result<()> {
         let gpkg = Gpkg::open_in_memory()?;
         let columns = vec![

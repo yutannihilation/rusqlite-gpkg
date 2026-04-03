@@ -3,6 +3,10 @@
 <!-- next-header -->
 ## [Unreleased] (ReleaseDate)
 
+### Added
+
+- Add `ColumnType::Blob` for raw binary data columns. Previously, `BLOB` columns were incorrectly mapped to `ColumnType::Geometry`; they are now correctly distinguished (#22).
+
 ## [v0.0.5] (2026-04-02)
 
 ### Added
