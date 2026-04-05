@@ -5,8 +5,7 @@
 
 ### Added
 
-- Add `ArrowGpkgWriter` for writing Arrow `RecordBatch`es into a GeoPackage layer (feature = `arrow`). The writer creates a layer from the Arrow schema on the first write and derives the EPSG srs_id from the GeoArrow CRS metadata (PROJJSON, WKT2, authority:code, or SRID). Note: when the writer auto-registers a new SRS entry, the `definition` column in `gpkg_spatial_ref_sys` is set to `"undefined"` because we lack a WKT1 source. The GeoPackage spec requires WKT1 here; a future release may address this.
-- Use `epsg-utils` crate to convert EPSG codes to PROJJSON for GeoArrow CRS metadata in the Arrow reader, replacing the previous opaque SRID representation.
+- Add `ArrowGpkgWriter` for writing Arrow `RecordBatch`es into a GeoPackage layer (feature = `arrow`). Note that this feature is incomplete; when the writer auto-registers a new SRS entry, the `definition` column in `gpkg_spatial_ref_sys` is set to `"undefined"` because we lack a WKT1 source.
 
 ## [v0.0.6] (2026-04-03)
 
