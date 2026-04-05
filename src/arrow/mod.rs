@@ -49,3 +49,31 @@
 //! ```
 
 pub mod reader;
+pub mod writer;
+
+use geoarrow_array::builder::WkbBuilder;
+
+pub(crate) fn crs_from_srs_id(srs_id: u32) -> geoarrow_schema::Crs {
+    match epsg_utils::epsg_to_projjson(srs_id as i32) {
+        Ok(projjson_str) => {
+            let value: serde_json::Value =
+                serde_json::from_str(projjson_str).expect("PROJJSON from epsg-utils must be valid");
+            geoarrow_schema::Crs::from_projjson(value)
+        }
+        Err(_) => geoarrow_schema::Crs::from_srid(srs_id.to_string()),
+    }
+}
+
+pub(crate) fn wkb_geometry_field(field_name: &str, srs_id: u32) -> arrow_schema::Field {
+    let geoarrow_metadata = geoarrow_schema::Metadata::new(crs_from_srs_id(srs_id), None);
+    geoarrow_schema::GeoArrowType::Wkb(geoarrow_schema::WkbType::new(geoarrow_metadata.into()))
+        .to_field(field_name, true)
+}
+
+pub(crate) fn wkb_geometry_builder(srs_id: u32, batch_size: usize) -> WkbBuilder<i32> {
+    let geoarrow_metadata = geoarrow_schema::Metadata::new(crs_from_srs_id(srs_id), None);
+    WkbBuilder::with_capacity(
+        geoarrow_schema::WkbType::new(geoarrow_metadata.into()),
+        geoarrow_array::capacity::WkbCapacity::new(21 * batch_size, batch_size),
+    )
+}

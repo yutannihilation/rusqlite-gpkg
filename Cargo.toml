@@ -21,6 +21,8 @@ arrow-array = { version = "58.1.0", optional = true }
 arrow-schema = { version = "58.1.0", optional = true }
 geoarrow-schema = { version = "0.8.0", optional = true }
 geoarrow-array = { version = "0.8.0", optional = true }
+epsg-utils = { version = "0.0.1", optional = true, default-features = false, features = ["projjson-definitions"] }
+serde_json = { version = "1", optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 sqlite-wasm-rs = "0.5.2"
@@ -28,7 +30,7 @@ sqlite-wasm-rs = "0.5.2"
 
 [features]
 wkt = ["dep:wkt"]
-arrow = ["dep:arrow-array", "dep:arrow-schema", "dep:geoarrow-array", "dep:geoarrow-schema"]
+arrow = ["dep:arrow-array", "dep:arrow-schema", "dep:geoarrow-array", "dep:geoarrow-schema", "dep:epsg-utils", "dep:serde_json"]
 
 [[bin]]
 name = "read_gpkg"

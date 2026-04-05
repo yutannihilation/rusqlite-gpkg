@@ -56,14 +56,14 @@ impl<'a> ArrowGpkgReader<'a> {
         let schema_ref = Self::construct_arrow_schema(
             &layer.property_columns,
             &layer.geometry_column,
-            &layer.srs_id.to_string(),
+            layer.srs_id,
         );
 
         Self {
             stmt,
             batch_size: batch_size as usize,
             property_columns: layer.property_columns.clone(),
-            srs_id: layer.srs_id.clone(),
+            srs_id: layer.srs_id,
             offset: 0,
             end_or_invalid_state: false,
             schema_ref,
@@ -73,7 +73,7 @@ impl<'a> ArrowGpkgReader<'a> {
     fn construct_arrow_schema(
         property_columns: &[ColumnSpec],
         geometry_column: &str,
-        srs_id: &str,
+        srs_id: u32,
     ) -> SchemaRef {
         let mut fields: Vec<FieldRef> = property_columns
             .iter()
@@ -97,19 +97,14 @@ impl<'a> ArrowGpkgReader<'a> {
                     crate::ColumnType::Blob => {
                         arrow_schema::Field::new(&col.name, arrow_schema::DataType::Binary, true)
                     }
-                    crate::ColumnType::Geometry => {
-                        wkb_geometry_field(&col.name, srs_id.to_string())
-                    }
+                    crate::ColumnType::Geometry => super::wkb_geometry_field(&col.name, srs_id),
                 };
 
                 Arc::new(field)
             })
             .collect();
 
-        fields.push(Arc::new(wkb_geometry_field(
-            geometry_column,
-            srs_id.to_string(),
-        )));
+        fields.push(Arc::new(super::wkb_geometry_field(geometry_column, srs_id)));
 
         Arc::new(arrow_schema::Schema::new(fields))
     }
@@ -146,17 +141,16 @@ impl<'a> ArrowGpkgReader<'a> {
                         8 * self.batch_size,
                     ))
                 }
-                crate::ColumnType::Geometry => GpkgArrayBuilder::Geometry(wkb_geometry_builder(
-                    self.srs_id.to_string(),
-                    self.batch_size,
-                )),
+                crate::ColumnType::Geometry => GpkgArrayBuilder::Geometry(
+                    super::wkb_geometry_builder(self.srs_id, self.batch_size),
+                ),
             })
             .collect();
 
         GpkgRecordBatchBuilder {
             schema_ref: self.schema_ref.clone(),
             builders,
-            geo_builder: wkb_geometry_builder(self.srs_id.to_string(), self.batch_size),
+            geo_builder: super::wkb_geometry_builder(self.srs_id, self.batch_size),
         }
     }
 
@@ -193,7 +187,7 @@ impl<'a> Iterator for ArrowGpkgReader<'a> {
 
         // If the result is less than the batch size, it means it reached the end.
         let result_size = features.num_rows();
-        if result_size < self.batch_size as usize {
+        if result_size < self.batch_size {
             self.end_or_invalid_state = true;
             if result_size == 0 {
                 return None;
@@ -376,22 +370,6 @@ fn rusqlite_value_type_name(value: &rusqlite::types::Value) -> &'static str {
         rusqlite::types::Value::Text(_) => "TEXT",
         rusqlite::types::Value::Blob(_) => "BLOB",
     }
-}
-
-fn wkb_geometry_field(field_name: &str, srs_id: String) -> arrow_schema::Field {
-    let geoarrow_metadata =
-        geoarrow_schema::Metadata::new(geoarrow_schema::Crs::from_srid(srs_id.clone()), None);
-    geoarrow_schema::GeoArrowType::Wkb(geoarrow_schema::WkbType::new(geoarrow_metadata.into()))
-        .to_field(field_name, true)
-}
-
-fn wkb_geometry_builder(srs_id: String, batch_size: usize) -> WkbBuilder<i32> {
-    let geoarrow_metadata =
-        geoarrow_schema::Metadata::new(geoarrow_schema::Crs::from_srid(srs_id.clone()), None);
-    WkbBuilder::with_capacity(
-        geoarrow_schema::WkbType::new(geoarrow_metadata.into()),
-        geoarrow_array::capacity::WkbCapacity::new(21 * batch_size, batch_size),
-    )
 }
 
 #[cfg(all(test, feature = "arrow"))]
