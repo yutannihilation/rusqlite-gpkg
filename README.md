@@ -307,6 +307,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Arrow writer
+
+> [!WARNING]
+> When the writer auto-registers a non-default SRS (anything other
+> than the built-in EPSG:4326), the `definition` column in
+> `gpkg_spatial_ref_sys` is set to `"undefined"` because we don't have a WKT1
+> source for arbitrary EPSG codes. Some GeoPackage consumers may expect a
+> proper WKT1 definition there.
+
+```rs
+use arrow_array::{Int64Array, RecordBatch, StringArray};
+use arrow_schema::{Field, Schema};
+use rusqlite_gpkg::{ArrowGpkgWriter, Gpkg};
+use std::sync::Arc;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let gpkg = Gpkg::open_in_memory()?;
+
+    // Build a RecordBatch with a GeoArrow WKB geometry column and property columns.
+    // (The geometry field must carry GeoArrow extension metadata with CRS information
+    // so that the writer can derive the EPSG srs_id.)
+    let schema = Arc::new(Schema::new(vec![
+        Arc::new(geom_field),   // WKB geometry field with GeoArrow metadata
+        Arc::new(Field::new("name", arrow_schema::DataType::Utf8, true)),
+        Arc::new(Field::new("value", arrow_schema::DataType::Int64, true)),
+    ]));
+    let batch = RecordBatch::try_new(schema, vec![geom_array, name_array, value_array])?;
+
+    // Write the batch into a new GeoPackage layer.
+    let mut writer = ArrowGpkgWriter::new(&gpkg, "my_layer")?;
+    writer.write(&batch)?;
+
+    Ok(())
+}
+```
+
 ### Arrow geometry handling
 
 ```rs

@@ -23,6 +23,13 @@ use crate::types::{ColumnSpec, ColumnType};
 ///
 /// If the EPSG code cannot be resolved, layer creation will fail.
 ///
+/// **Caveat:** When the writer auto-registers a new SRS entry in
+/// `gpkg_spatial_ref_sys`, the `definition` column is set to `"undefined"`.
+/// The GeoPackage spec requires WKT1 in this column, but this crate does not
+/// currently have a WKT1 source for arbitrary EPSG codes. The default
+/// EPSG:4326 entry (registered at GeoPackage creation) does include a proper
+/// WKT1 definition.
+///
 /// ## Example
 ///
 /// ```no_run
