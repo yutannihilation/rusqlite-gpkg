@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "rusqlite-gpkg"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "arrow-array",
  "arrow-schema",
