@@ -136,7 +136,10 @@ impl<'a> ArrowGpkgWriter<'a> {
     }
 
     fn write_batch(&self, batch: &RecordBatch) -> Result<()> {
-        let state = self.state.as_ref().expect("initialize must be called first");
+        let state = self
+            .state
+            .as_ref()
+            .expect("initialize must be called first");
 
         let mut stmt = self.gpkg.conn.prepare_cached(&state.insert_sql)?;
         let num_params = 1 + state.property_col_indices.len();
@@ -302,10 +305,7 @@ fn extract_wkb_bytes(array: &dyn arrow_array::Array, row_idx: usize) -> Result<V
 }
 
 /// Extract a rusqlite-compatible value from an Arrow array at the given row index.
-fn extract_value(
-    array: &dyn arrow_array::Array,
-    row_idx: usize,
-) -> Result<rusqlite::types::Value> {
+fn extract_value(array: &dyn arrow_array::Array, row_idx: usize) -> Result<rusqlite::types::Value> {
     if array.is_null(row_idx) {
         return Ok(rusqlite::types::Value::Null);
     }
