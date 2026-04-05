@@ -63,7 +63,7 @@ impl<'a> ArrowGpkgReader<'a> {
             stmt,
             batch_size: batch_size as usize,
             property_columns: layer.property_columns.clone(),
-            srs_id: layer.srs_id.clone(),
+            srs_id: layer.srs_id,
             offset: 0,
             end_or_invalid_state: false,
             schema_ref,
@@ -187,7 +187,7 @@ impl<'a> Iterator for ArrowGpkgReader<'a> {
 
         // If the result is less than the batch size, it means it reached the end.
         let result_size = features.num_rows();
-        if result_size < self.batch_size as usize {
+        if result_size < self.batch_size {
             self.end_or_invalid_state = true;
             if result_size == 0 {
                 return None;
