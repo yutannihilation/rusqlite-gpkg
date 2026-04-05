@@ -137,6 +137,8 @@ pub mod vfs;
 
 #[cfg(feature = "arrow")]
 pub use arrow::reader::ArrowGpkgReader;
+#[cfg(feature = "arrow")]
+pub use arrow::writer::ArrowGpkgWriter;
 
 pub use error::{GpkgError, Result};
 pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureBatchIterator, GpkgLayer};
