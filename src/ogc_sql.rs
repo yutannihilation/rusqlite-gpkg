@@ -109,6 +109,8 @@ pub(crate) fn sql_insert_feature(layer_name: &str, columns: &str, values: &str) 
 }
 
 pub(crate) fn initialize_gpkg(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    // 0x47504B47 = ASCII "GPKG" (GeoPackage 1.2+)
+    conn.execute_batch("PRAGMA application_id = 0x47504B47;")?;
     conn.execute_batch(SQL_GPKG_SPATIAL_REF_SYS)?;
     register_default_srs_ids(conn)?;
     conn.execute_batch(SQL_GPKG_CONTENTS)?;
