@@ -22,6 +22,15 @@ jobs:
       - name: Test arrow features
         run: cargo test --features arrow
 
+      - name: Validate GeoPackage files with GDAL
+        run: |
+          for f in /tmp/rusqlite_gpkg_dump_*.gpkg; do
+            echo "Validating ${f}..."
+            docker run --rm -v "${f}:/tmp/validate.gpkg:ro" \
+              ghcr.io/osgeo/gdal:alpine-normal-3.13.0beta1 \
+              gdal driver gpkg validate /tmp/validate.gpkg
+          done
+
   wasm:
     runs-on: ubuntu-latest
     steps:
