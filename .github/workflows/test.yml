@@ -26,9 +26,9 @@ jobs:
         run: |
           for f in /tmp/rusqlite_gpkg_dump_*.gpkg; do
             echo "Validating ${f}..."
-            docker run --rm -v "${f}:/tmp/validate.gpkg:ro" \
+            docker run --rm -v "/tmp:/tmp:ro" \
               ghcr.io/osgeo/gdal:alpine-normal-3.13.0beta1 \
-              gdal driver gpkg validate /tmp/validate.gpkg
+              gdal driver gpkg validate "${f}"
           done
 
   wasm:
