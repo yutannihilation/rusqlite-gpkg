@@ -3,6 +3,11 @@
 <!-- next-header -->
 ## [Unreleased] (ReleaseDate)
 
+### Fixed
+
+- Set `PRAGMA application_id` to `0x47504B47` ("GPKG") when creating a new GeoPackage, as required by the spec (#28).
+- Register RTree spatial indexes in `gpkg_extensions` so other readers can discover them (#29).
+
 ## [v0.0.7] (2026-04-05)
 
 ### Added
