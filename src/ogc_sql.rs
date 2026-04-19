@@ -345,5 +345,10 @@ pub(crate) fn execute_rtree_sqls(
     conn.execute_batch(&gpkg_rtree_create_sql(table, geom_column))?;
     conn.execute_batch(&gpkg_rtree_load_sql(table, geom_column, id_column))?;
     conn.execute_batch(&gpkg_rtree_triggers_sql(table, geom_column, id_column))?;
+    conn.execute(
+        "INSERT INTO gpkg_extensions (table_name, column_name, extension_name, definition, scope) \
+         VALUES (?1, ?2, 'gpkg_rtree_index', 'http://www.geopackage.org/spec/#extension_rtree', 'write-only')",
+        rusqlite::params![table, geom_column],
+    )?;
     Ok(())
 }
