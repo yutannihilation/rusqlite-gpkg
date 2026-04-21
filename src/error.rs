@@ -76,6 +76,14 @@ pub enum GpkgError {
     MissingGeometryColumn {
         layer_name: String,
     },
+    /// Attempted to use `get_layer()` on an attribute table (use `get_attribute_table()` instead).
+    NotAFeatureLayer {
+        layer_name: String,
+    },
+    /// Attempted to use `get_attribute_table()` on a feature layer (use `get_layer()` instead).
+    NotAnAttributeTable {
+        layer_name: String,
+    },
     /// A feature row has a `NULL` geometry value.
     NullGeometryValue,
     /// Hybrid/custom VFS registration or usage failed.
@@ -149,6 +157,18 @@ impl fmt::Display for GpkgError {
             }
             Self::MissingGeometryColumn { layer_name } => {
                 write!(f, "no geometry column found for layer: {layer_name}")
+            }
+            Self::NotAFeatureLayer { layer_name } => {
+                write!(
+                    f,
+                    "'{layer_name}' is not a feature layer; use get_attribute_table() instead"
+                )
+            }
+            Self::NotAnAttributeTable { layer_name } => {
+                write!(
+                    f,
+                    "'{layer_name}' is not an attribute table; use get_layer() instead"
+                )
             }
             Self::NullGeometryValue => write!(f, "feature has null geometry value"),
             Self::Vfs(err) => write!(f, "vfs error: {err}"),

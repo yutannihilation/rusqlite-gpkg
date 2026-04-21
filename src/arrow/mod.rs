@@ -48,6 +48,8 @@
 //! }
 //! ```
 
+pub mod attribute_reader;
+pub mod attribute_writer;
 pub mod reader;
 pub mod writer;
 

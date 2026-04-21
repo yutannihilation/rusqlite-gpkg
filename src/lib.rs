@@ -136,12 +136,18 @@ mod types;
 pub mod vfs;
 
 #[cfg(feature = "arrow")]
+pub use arrow::attribute_reader::ArrowGpkgAttributeReader;
+#[cfg(feature = "arrow")]
+pub use arrow::attribute_writer::ArrowGpkgAttributeWriter;
+#[cfg(feature = "arrow")]
 pub use arrow::reader::ArrowGpkgReader;
 #[cfg(feature = "arrow")]
 pub use arrow::writer::ArrowGpkgWriter;
 
 pub use error::{GpkgError, Result};
-pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureBatchIterator, GpkgLayer};
+pub use gpkg::{
+    Gpkg, GpkgAttributeRow, GpkgAttributeTable, GpkgFeature, GpkgFeatureBatchIterator, GpkgLayer,
+};
 pub use sql_functions::register_spatial_functions;
 pub use types::{ColumnSpec, ColumnType, GpkgLayerMetadata, Value};
 
