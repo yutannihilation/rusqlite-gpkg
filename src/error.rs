@@ -60,6 +60,10 @@ pub enum GpkgError {
     LayerAlreadyExists {
         layer_name: String,
     },
+    /// Attribute table must not contain geometry-typed columns.
+    GeometryColumnInAttributeTable {
+        column: String,
+    },
     /// Referenced `srs_id` does not exist in `gpkg_spatial_ref_sys`.
     MissingSpatialRefSysId {
         srs_id: u32,
@@ -149,6 +153,12 @@ impl fmt::Display for GpkgError {
             Self::MissingProperty { property } => write!(f, "missing property: {property}"),
             Self::LayerAlreadyExists { layer_name } => {
                 write!(f, "layer already exists: {layer_name}")
+            }
+            Self::GeometryColumnInAttributeTable { column } => {
+                write!(
+                    f,
+                    "attribute tables must not contain geometry columns, but found column '{column}'"
+                )
             }
             Self::MissingSpatialRefSysId { srs_id } => {
                 write!(f, "srs_id {srs_id} not found in gpkg_spatial_ref_sys")

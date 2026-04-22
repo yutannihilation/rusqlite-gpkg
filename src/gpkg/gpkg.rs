@@ -569,6 +569,16 @@ impl Gpkg {
             });
         }
 
+        // Attribute tables must not have geometry columns.
+        if let Some(spec) = column_specs
+            .iter()
+            .find(|s| s.column_type == crate::types::ColumnType::Geometry)
+        {
+            return Err(GpkgError::GeometryColumnInAttributeTable {
+                column: spec.name.clone(),
+            });
+        }
+
         let mut column_defs = Vec::with_capacity(column_specs.len() + 1);
         column_defs.push("fid INTEGER PRIMARY KEY AUTOINCREMENT".to_string());
         for spec in column_specs {
@@ -689,6 +699,11 @@ impl Gpkg {
                 }
                 primary_key_column = Some(name);
                 continue;
+            }
+            if column_type == crate::types::ColumnType::Geometry {
+                return Err(GpkgError::GeometryColumnInAttributeTable {
+                    column: name,
+                });
             }
             other_columns.push(ColumnSpec { name, column_type });
         }

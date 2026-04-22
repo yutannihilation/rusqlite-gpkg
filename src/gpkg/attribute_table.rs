@@ -121,10 +121,10 @@ impl GpkgAttributeTable {
         property_columns: &[ColumnSpec],
     ) -> String {
         if property_columns.is_empty() {
-            // No columns to update; use a WHERE-only statement that touches nothing.
+            // No columns to update; set the PK to itself as a no-op.
             return format!(
-                r#"SELECT 1 FROM "{}" WHERE "{}"=?1"#,
-                table_name, primary_key_column
+                r#"UPDATE "{}" SET "{}"=?1 WHERE "{}"=?1"#,
+                table_name, primary_key_column, primary_key_column
             );
         }
 
@@ -549,6 +549,44 @@ mod tests {
             .create_attribute_table("shared_name", &[])
             .expect_err("duplicate name should fail");
         assert!(matches!(err, GpkgError::LayerAlreadyExists { .. }));
+
+        Ok(())
+    }
+
+    #[test]
+    fn empty_columns_insert_and_update() -> Result<()> {
+        let gpkg = Gpkg::open_in_memory()?;
+        let table = gpkg.create_attribute_table("empty_cols", &[])?;
+
+        // Insert with no properties should succeed.
+        table.insert(std::iter::empty::<&crate::Value>())?;
+        let id = table.conn.last_insert_rowid();
+
+        // Update with no properties should succeed (no-op).
+        table.update(std::iter::empty::<&crate::Value>(), id)?;
+
+        let rows = table.rows()?;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id(), id);
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_geometry_column_in_attribute_table() -> Result<()> {
+        let gpkg = Gpkg::open_in_memory()?;
+        let columns = vec![ColumnSpec {
+            name: "geom".to_string(),
+            column_type: ColumnType::Geometry,
+        }];
+
+        let err = gpkg
+            .create_attribute_table("bad_table", &columns)
+            .expect_err("geometry column should be rejected");
+        assert!(matches!(
+            err,
+            GpkgError::GeometryColumnInAttributeTable { .. }
+        ));
 
         Ok(())
     }
