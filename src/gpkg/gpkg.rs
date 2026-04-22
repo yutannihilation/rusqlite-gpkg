@@ -507,8 +507,14 @@ impl Gpkg {
     pub fn get_attribute_table(&self, table_name: &str) -> Result<GpkgAttributeTable> {
         let data_type = self.get_data_type(table_name)?;
         if data_type != "attributes" {
-            return Err(GpkgError::NotAnAttributeTable {
+            if data_type == "features" {
+                return Err(GpkgError::NotAnAttributeTable {
+                    layer_name: table_name.to_string(),
+                });
+            }
+            return Err(GpkgError::UnsupportedDataType {
                 layer_name: table_name.to_string(),
+                data_type,
             });
         }
 
@@ -613,8 +619,14 @@ impl Gpkg {
 
         let data_type = self.get_data_type(table_name)?;
         if data_type != "attributes" {
-            return Err(GpkgError::NotAnAttributeTable {
+            if data_type == "features" {
+                return Err(GpkgError::NotAnAttributeTable {
+                    layer_name: table_name.to_string(),
+                });
+            }
+            return Err(GpkgError::UnsupportedDataType {
                 layer_name: table_name.to_string(),
+                data_type,
             });
         }
 

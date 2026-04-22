@@ -181,7 +181,7 @@ impl fmt::Display for GpkgError {
             } => {
                 write!(
                     f,
-                    "unsupported data_type '{data_type}' for table '{layer_name}'"
+                    "data_type '{data_type}' is not supported yet (table '{layer_name}')"
                 )
             }
             Self::NullGeometryValue => write!(f, "feature has null geometry value"),
