@@ -84,6 +84,11 @@ pub enum GpkgError {
     NotAnAttributeTable {
         layer_name: String,
     },
+    /// Table has an unsupported `data_type` in `gpkg_contents` (e.g., `"tiles"`).
+    UnsupportedDataType {
+        layer_name: String,
+        data_type: String,
+    },
     /// A feature row has a `NULL` geometry value.
     NullGeometryValue,
     /// Hybrid/custom VFS registration or usage failed.
@@ -168,6 +173,15 @@ impl fmt::Display for GpkgError {
                 write!(
                     f,
                     "'{layer_name}' is not an attribute table; use get_layer() instead"
+                )
+            }
+            Self::UnsupportedDataType {
+                layer_name,
+                data_type,
+            } => {
+                write!(
+                    f,
+                    "unsupported data_type '{data_type}' for table '{layer_name}'"
                 )
             }
             Self::NullGeometryValue => write!(f, "feature has null geometry value"),

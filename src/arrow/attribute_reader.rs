@@ -20,7 +20,14 @@ pub struct ArrowGpkgAttributeReader<'a> {
 
 impl<'a> ArrowGpkgAttributeReader<'a> {
     /// Create a new Arrow reader for an attribute table.
+    ///
+    /// `batch_size` must be greater than zero.
     pub fn new(gpkg: &'a Gpkg, table_name: &str, batch_size: u32) -> crate::error::Result<Self> {
+        if batch_size == 0 {
+            return Err(GpkgError::GeoArrow(
+                "batch_size must be greater than zero".to_string(),
+            ));
+        }
         let table = gpkg.get_attribute_table(table_name)?;
         let columns = table.property_columns.iter().map(|spec| spec.name.as_str());
         let sql = sql_select_attribute_rows(

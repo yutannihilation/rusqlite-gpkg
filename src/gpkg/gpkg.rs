@@ -250,12 +250,18 @@ impl Gpkg {
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn get_layer(&self, layer_name: &str) -> Result<GpkgLayer> {
-        // Guard: if this table exists but is an attribute table, give a clear error.
+        // Guard: if this table exists but is not a feature layer, give a clear error.
         if let Ok(data_type) = self.get_data_type(layer_name)
             && data_type != "features"
         {
-            return Err(GpkgError::NotAFeatureLayer {
+            if data_type == "attributes" {
+                return Err(GpkgError::NotAFeatureLayer {
+                    layer_name: layer_name.to_string(),
+                });
+            }
+            return Err(GpkgError::UnsupportedDataType {
                 layer_name: layer_name.to_string(),
+                data_type,
             });
         }
 
@@ -333,7 +339,7 @@ impl Gpkg {
             return Err(GpkgError::ReadOnly);
         }
 
-        if self.list_layers()?.iter().any(|name| name == layer_name) {
+        if self.table_exists_in_contents(layer_name)? {
             return Err(GpkgError::LayerAlreadyExists {
                 layer_name: layer_name.to_string(),
             });
@@ -418,12 +424,18 @@ impl Gpkg {
             return Err(GpkgError::ReadOnly);
         }
 
-        // Guard: don't try to delete attribute tables via delete_layer.
+        // Guard: don't try to delete non-feature tables via delete_layer.
         if let Ok(data_type) = self.get_data_type(layer_name)
             && data_type != "features"
         {
-            return Err(GpkgError::NotAFeatureLayer {
+            if data_type == "attributes" {
+                return Err(GpkgError::NotAFeatureLayer {
+                    layer_name: layer_name.to_string(),
+                });
+            }
+            return Err(GpkgError::UnsupportedDataType {
                 layer_name: layer_name.to_string(),
+                data_type,
             });
         }
 
@@ -545,13 +557,7 @@ impl Gpkg {
             return Err(GpkgError::ReadOnly);
         }
 
-        // Check against both feature layers and attribute tables.
-        let all_names: Vec<String> = {
-            let mut names = self.list_layers()?;
-            names.extend(self.list_attribute_tables()?);
-            names
-        };
-        if all_names.iter().any(|name| name == table_name) {
+        if self.table_exists_in_contents(table_name)? {
             return Err(GpkgError::LayerAlreadyExists {
                 layer_name: table_name.to_string(),
             });
@@ -618,6 +624,16 @@ impl Gpkg {
             rusqlite::params![table_name],
         )?;
         Ok(())
+    }
+
+    /// Check whether a table name already exists in `gpkg_contents` (any data_type).
+    fn table_exists_in_contents(&self, table_name: &str) -> Result<bool> {
+        let exists: i64 = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM gpkg_contents WHERE table_name = ?1)",
+            rusqlite::params![table_name],
+            |row| row.get(0),
+        )?;
+        Ok(exists == 1)
     }
 
     /// Look up the `data_type` for a table in `gpkg_contents`.

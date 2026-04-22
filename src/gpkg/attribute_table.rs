@@ -98,6 +98,10 @@ impl GpkgAttributeTable {
     }
 
     pub(crate) fn build_insert_sql(table_name: &str, property_columns: &[ColumnSpec]) -> String {
+        if property_columns.is_empty() {
+            return format!(r#"INSERT INTO "{}" DEFAULT VALUES"#, table_name);
+        }
+
         let columns: Vec<String> = property_columns
             .iter()
             .map(|spec| format!(r#""{}""#, spec.name))
@@ -116,6 +120,14 @@ impl GpkgAttributeTable {
         primary_key_column: &str,
         property_columns: &[ColumnSpec],
     ) -> String {
+        if property_columns.is_empty() {
+            // No columns to update; use a WHERE-only statement that touches nothing.
+            return format!(
+                r#"SELECT 1 FROM "{}" WHERE "{}"=?1"#,
+                table_name, primary_key_column
+            );
+        }
+
         let assignments = property_columns
             .iter()
             .enumerate()
