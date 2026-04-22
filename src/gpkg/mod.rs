@@ -1,7 +1,11 @@
 //! GeoPackage reader/writer surface backed by rusqlite.
 //!
-//! This module currently focuses on reading layers and features from a GeoPackage,
-//! while keeping the API shape flexible for future write support.
+//! This module provides two content types:
+//!
+//! - **Feature layers** ([`GpkgLayer`] / [`GpkgFeature`]): tables with a geometry column and spatial index.
+//! - **Attribute tables** ([`GpkgAttributeTable`] / [`GpkgAttributeRow`]): non-spatial tables with no geometry column.
+//!
+//! [`Gpkg`] is the connection entry point for both.
 
 mod attribute_row;
 mod attribute_table;
