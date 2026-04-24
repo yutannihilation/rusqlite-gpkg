@@ -4,9 +4,10 @@ use crate::conversions::{
 };
 use crate::error::{GpkgError, Result};
 use crate::ogc_sql::{
-    SQL_INSERT_GPKG_CONTENTS, SQL_INSERT_GPKG_GEOMETRY_COLUMNS, SQL_LIST_LAYERS,
-    SQL_SELECT_GEOMETRY_COLUMN_META, execute_rtree_sqls, gpkg_rtree_drop_sql, initialize_gpkg,
-    sql_create_table, sql_drop_table, sql_table_columns,
+    SQL_INSERT_GPKG_CONTENTS, SQL_INSERT_GPKG_CONTENTS_ATTRIBUTES,
+    SQL_INSERT_GPKG_GEOMETRY_COLUMNS, SQL_LIST_ATTRIBUTE_TABLES, SQL_LIST_LAYERS,
+    SQL_SELECT_DATA_TYPE, SQL_SELECT_GEOMETRY_COLUMN_META, execute_rtree_sqls, gpkg_rtree_drop_sql,
+    initialize_gpkg, sql_create_table, sql_drop_table, sql_table_columns,
 };
 use crate::sql_functions::register_spatial_functions;
 use crate::types::{ColumnSpec, GpkgLayerMetadata};
@@ -18,6 +19,7 @@ use std::io::Write;
 use std::path::Path;
 use std::rc::Rc;
 
+use super::attribute_table::GpkgAttributeTable;
 use super::layer::GpkgLayer;
 
 #[derive(Debug)]
@@ -201,7 +203,7 @@ impl Gpkg {
         Ok(())
     }
 
-    /// List the names of the layers.
+    /// List the names of the feature layers (tables with `data_type = 'features'`).
     ///
     /// Example:
     /// ```no_run
@@ -219,6 +221,24 @@ impl Gpkg {
         Ok(layers)
     }
 
+    /// List the names of the attribute tables (tables with `data_type = 'attributes'`).
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// let tables = gpkg.list_attribute_tables()?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
+    pub fn list_attribute_tables(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(SQL_LIST_ATTRIBUTE_TABLES)?;
+        let tables = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<std::result::Result<Vec<String>, _>>()?;
+        Ok(tables)
+    }
+
     /// Load a layer definition and metadata by name.
     ///
     /// Example:
@@ -230,6 +250,21 @@ impl Gpkg {
     /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
     /// ```
     pub fn get_layer(&self, layer_name: &str) -> Result<GpkgLayer> {
+        // Guard: if this table exists but is not a feature layer, give a clear error.
+        if let Ok(data_type) = self.get_data_type(layer_name)
+            && data_type != "features"
+        {
+            if data_type == "attributes" {
+                return Err(GpkgError::NotAFeatureLayer {
+                    layer_name: layer_name.to_string(),
+                });
+            }
+            return Err(GpkgError::UnsupportedDataType {
+                layer_name: layer_name.to_string(),
+                data_type,
+            });
+        }
+
         let (geometry_column, geometry_type, geometry_dimension, srs_id) =
             self.get_geometry_column_and_srs_id(layer_name)?;
         let column_specs = self.get_column_specs(
@@ -304,7 +339,7 @@ impl Gpkg {
             return Err(GpkgError::ReadOnly);
         }
 
-        if self.list_layers()?.iter().any(|name| name == layer_name) {
+        if self.table_exists_in_contents(layer_name)? {
             return Err(GpkgError::LayerAlreadyExists {
                 layer_name: layer_name.to_string(),
             });
@@ -389,6 +424,21 @@ impl Gpkg {
             return Err(GpkgError::ReadOnly);
         }
 
+        // Guard: don't try to delete non-feature tables via delete_layer.
+        if let Ok(data_type) = self.get_data_type(layer_name)
+            && data_type != "features"
+        {
+            if data_type == "attributes" {
+                return Err(GpkgError::NotAFeatureLayer {
+                    layer_name: layer_name.to_string(),
+                });
+            }
+            return Err(GpkgError::UnsupportedDataType {
+                layer_name: layer_name.to_string(),
+                data_type,
+            });
+        }
+
         let (geometry_column, _, _, _) = self.get_geometry_column_and_srs_id(layer_name)?;
 
         self.conn
@@ -442,6 +492,228 @@ impl Gpkg {
             conn: Rc::new(conn),
             read_only: false,
         })
+    }
+
+    /// Load an attribute table definition by name.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open_read_only("data/example.gpkg")?;
+    /// let table = gpkg.get_attribute_table("observations")?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
+    pub fn get_attribute_table(&self, table_name: &str) -> Result<GpkgAttributeTable> {
+        let data_type = self.get_data_type(table_name)?;
+        if data_type != "attributes" {
+            if data_type == "features" {
+                return Err(GpkgError::NotAnAttributeTable {
+                    layer_name: table_name.to_string(),
+                });
+            }
+            return Err(GpkgError::UnsupportedDataType {
+                layer_name: table_name.to_string(),
+                data_type,
+            });
+        }
+
+        let (primary_key_column, other_columns) = self.get_attribute_column_specs(table_name)?;
+
+        let insert_sql = GpkgAttributeTable::build_insert_sql(table_name, &other_columns);
+        let update_sql =
+            GpkgAttributeTable::build_update_sql(table_name, &primary_key_column, &other_columns);
+        let property_index_by_name = Rc::new(GpkgAttributeTable::build_property_index_by_name(
+            &other_columns,
+        ));
+
+        Ok(GpkgAttributeTable {
+            conn: self.conn.clone(),
+            is_read_only: self.read_only,
+            table_name: table_name.to_string(),
+            primary_key_column,
+            property_columns: other_columns,
+            property_index_by_name,
+            insert_sql,
+            update_sql,
+        })
+    }
+
+    /// Create a new attribute table (non-spatial, no geometry column).
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, params};
+    ///
+    /// let gpkg = Gpkg::open_in_memory()?;
+    /// let columns = vec![
+    ///     ColumnSpec { name: "name".to_string(), column_type: ColumnType::Varchar },
+    ///     ColumnSpec { name: "value".to_string(), column_type: ColumnType::Integer },
+    /// ];
+    /// let table = gpkg.create_attribute_table("observations", &columns)?;
+    /// table.insert(params!["alpha", 7_i64])?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
+    pub fn create_attribute_table(
+        &self,
+        table_name: &str,
+        column_specs: &[ColumnSpec],
+    ) -> Result<GpkgAttributeTable> {
+        if self.read_only {
+            return Err(GpkgError::ReadOnly);
+        }
+
+        if self.table_exists_in_contents(table_name)? {
+            return Err(GpkgError::LayerAlreadyExists {
+                layer_name: table_name.to_string(),
+            });
+        }
+
+        // Attribute tables must not have geometry columns.
+        if let Some(spec) = column_specs
+            .iter()
+            .find(|s| s.column_type == crate::types::ColumnType::Geometry)
+        {
+            return Err(GpkgError::GeometryColumnInAttributeTable {
+                column: spec.name.clone(),
+            });
+        }
+
+        let mut column_defs = Vec::with_capacity(column_specs.len() + 1);
+        column_defs.push("fid INTEGER PRIMARY KEY AUTOINCREMENT".to_string());
+        for spec in column_specs {
+            let col_type = crate::conversions::column_type_to_str(spec.column_type);
+            column_defs.push(format!(r#""{}" {col_type}"#, spec.name));
+        }
+
+        let create_sql = sql_create_table(table_name, &column_defs.join(", "));
+        self.conn.execute_batch(&create_sql)?;
+
+        self.conn.execute(
+            SQL_INSERT_GPKG_CONTENTS_ATTRIBUTES,
+            rusqlite::params![table_name, table_name],
+        )?;
+
+        let insert_sql = GpkgAttributeTable::build_insert_sql(table_name, column_specs);
+        let update_sql = GpkgAttributeTable::build_update_sql(table_name, "fid", column_specs);
+        let property_index_by_name = Rc::new(GpkgAttributeTable::build_property_index_by_name(
+            column_specs,
+        ));
+
+        Ok(GpkgAttributeTable {
+            conn: self.conn.clone(),
+            is_read_only: self.read_only,
+            table_name: table_name.to_string(),
+            primary_key_column: "fid".to_string(),
+            property_columns: column_specs.to_vec(),
+            property_index_by_name,
+            insert_sql,
+            update_sql,
+        })
+    }
+
+    /// Delete an attribute table.
+    ///
+    /// Example:
+    /// ```no_run
+    /// use rusqlite_gpkg::Gpkg;
+    ///
+    /// let gpkg = Gpkg::open("data/example.gpkg")?;
+    /// gpkg.delete_attribute_table("observations")?;
+    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
+    /// ```
+    pub fn delete_attribute_table(&self, table_name: &str) -> Result<()> {
+        if self.read_only {
+            return Err(GpkgError::ReadOnly);
+        }
+
+        let data_type = self.get_data_type(table_name)?;
+        if data_type != "attributes" {
+            if data_type == "features" {
+                return Err(GpkgError::NotAnAttributeTable {
+                    layer_name: table_name.to_string(),
+                });
+            }
+            return Err(GpkgError::UnsupportedDataType {
+                layer_name: table_name.to_string(),
+                data_type,
+            });
+        }
+
+        self.conn.execute_batch(&sql_drop_table(table_name))?;
+        self.conn.execute(
+            "DELETE FROM gpkg_contents WHERE table_name = ?1",
+            rusqlite::params![table_name],
+        )?;
+        Ok(())
+    }
+
+    /// Check whether a table name already exists in `gpkg_contents` (any data_type).
+    fn table_exists_in_contents(&self, table_name: &str) -> Result<bool> {
+        let exists: i64 = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM gpkg_contents WHERE table_name = ?1)",
+            rusqlite::params![table_name],
+            |row| row.get(0),
+        )?;
+        Ok(exists == 1)
+    }
+
+    /// Look up the `data_type` for a table in `gpkg_contents`.
+    pub(crate) fn get_data_type(&self, table_name: &str) -> Result<String> {
+        let mut stmt = self.conn.prepare(SQL_SELECT_DATA_TYPE)?;
+        let data_type = stmt.query_one([table_name], |row| row.get::<_, String>(0))?;
+        Ok(data_type)
+    }
+
+    /// Resolve column specs for an attribute table (no geometry column expected).
+    pub(crate) fn get_attribute_column_specs(
+        &self,
+        table_name: &str,
+    ) -> Result<(String, Vec<ColumnSpec>)> {
+        let query = sql_table_columns(table_name);
+        let mut stmt = self.conn.prepare(&query)?;
+
+        let column_specs = stmt.query_map([], |row| {
+            let name: String = row.get(0)?;
+            let column_type_str: String = row.get(1)?;
+            let primary_key: i32 = row.get(2)?;
+            let primary_key = primary_key != 0;
+            Ok((name, column_type_str, primary_key))
+        })?;
+
+        let result: std::result::Result<Vec<(String, String, bool)>, _> = column_specs.collect();
+        let mut primary_key_column: Option<String> = None;
+        let mut other_columns = Vec::new();
+        for (name, column_type_str, is_primary_key) in result? {
+            let column_type = crate::conversions::column_type_from_str(&column_type_str)
+                .ok_or_else(|| GpkgError::UnsupportedColumnType {
+                    column: name.clone(),
+                    declared_type: column_type_str,
+                })?;
+
+            if is_primary_key {
+                if primary_key_column.is_some() {
+                    return Err(GpkgError::CompositePrimaryKeyUnsupported {
+                        layer_name: table_name.to_string(),
+                    });
+                }
+                primary_key_column = Some(name);
+                continue;
+            }
+            if column_type == crate::types::ColumnType::Geometry {
+                return Err(GpkgError::GeometryColumnInAttributeTable {
+                    column: name,
+                });
+            }
+            other_columns.push(ColumnSpec { name, column_type });
+        }
+
+        let primary_key_column =
+            primary_key_column.ok_or_else(|| GpkgError::MissingPrimaryKeyColumn {
+                layer_name: table_name.to_string(),
+            })?;
+
+        Ok((primary_key_column, other_columns))
     }
 
     /// Resolve the table columns and map SQLite types.

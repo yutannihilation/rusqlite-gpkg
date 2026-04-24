@@ -60,6 +60,10 @@ pub enum GpkgError {
     LayerAlreadyExists {
         layer_name: String,
     },
+    /// Attribute table must not contain geometry-typed columns.
+    GeometryColumnInAttributeTable {
+        column: String,
+    },
     /// Referenced `srs_id` does not exist in `gpkg_spatial_ref_sys`.
     MissingSpatialRefSysId {
         srs_id: u32,
@@ -75,6 +79,19 @@ pub enum GpkgError {
     /// Layer schema has no geometry column.
     MissingGeometryColumn {
         layer_name: String,
+    },
+    /// Attempted to use `get_layer()` on an attribute table (use `get_attribute_table()` instead).
+    NotAFeatureLayer {
+        layer_name: String,
+    },
+    /// Attempted to use `get_attribute_table()` on a feature layer (use `get_layer()` instead).
+    NotAnAttributeTable {
+        layer_name: String,
+    },
+    /// Table has an unsupported `data_type` in `gpkg_contents` (e.g., `"tiles"`).
+    UnsupportedDataType {
+        layer_name: String,
+        data_type: String,
     },
     /// A feature row has a `NULL` geometry value.
     NullGeometryValue,
@@ -137,6 +154,12 @@ impl fmt::Display for GpkgError {
             Self::LayerAlreadyExists { layer_name } => {
                 write!(f, "layer already exists: {layer_name}")
             }
+            Self::GeometryColumnInAttributeTable { column } => {
+                write!(
+                    f,
+                    "attribute tables must not contain geometry columns, but found column '{column}'"
+                )
+            }
             Self::MissingSpatialRefSysId { srs_id } => {
                 write!(f, "srs_id {srs_id} not found in gpkg_spatial_ref_sys")
             }
@@ -149,6 +172,27 @@ impl fmt::Display for GpkgError {
             }
             Self::MissingGeometryColumn { layer_name } => {
                 write!(f, "no geometry column found for layer: {layer_name}")
+            }
+            Self::NotAFeatureLayer { layer_name } => {
+                write!(
+                    f,
+                    "'{layer_name}' is not a feature layer; use get_attribute_table() instead"
+                )
+            }
+            Self::NotAnAttributeTable { layer_name } => {
+                write!(
+                    f,
+                    "'{layer_name}' is not an attribute table; use get_layer() instead"
+                )
+            }
+            Self::UnsupportedDataType {
+                layer_name,
+                data_type,
+            } => {
+                write!(
+                    f,
+                    "data_type '{data_type}' is not supported yet (table '{layer_name}')"
+                )
             }
             Self::NullGeometryValue => write!(f, "feature has null geometry value"),
             Self::Vfs(err) => write!(f, "vfs error: {err}"),

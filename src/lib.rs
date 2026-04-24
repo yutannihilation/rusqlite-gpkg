@@ -2,10 +2,18 @@
 //!
 //! ## Overview
 //!
-//! - `Gpkg` represents the GeoPackage connection.
-//! - `GpkgLayer` represents a single layer (feature table).
-//! - `GpkgFeature` represents a single feature (row).
-//! - `Value` represents a single property value.
+//! The crate supports two GeoPackage content types:
+//!
+//! **Feature layers** (spatial data with geometry):
+//! - [`Gpkg`] -- the GeoPackage connection.
+//! - [`GpkgLayer`] -- a single feature layer (table with geometry column).
+//! - [`GpkgFeature`] -- a single feature (row with geometry + properties).
+//!
+//! **Attribute tables** (non-spatial tabular data, no geometry):
+//! - [`GpkgAttributeTable`] -- a single attribute table.
+//! - [`GpkgAttributeRow`] -- a single row (properties only, no geometry).
+//!
+//! [`Value`] represents a single property value in both cases.
 //!
 //! Apache Arrow support is available behind the `arrow` feature flag.
 //!
@@ -47,6 +55,9 @@
 //!
 //! `Gpkg` represents the GeoPackage connection and is the entry point for
 //! opening databases, listing layers, and creating new layers.
+//!
+//! - `list_layers()` / `get_layer(name)` / `create_layer(...)` for feature layers.
+//! - `list_attribute_tables()` / `get_attribute_table(name)` / `create_attribute_table(...)` for attribute tables.
 //!
 //! ```no_run
 //! use rusqlite_gpkg::Gpkg;
@@ -103,6 +114,26 @@
 //! # Ok::<(), rusqlite_gpkg::GpkgError>(())
 //! ```
 //!
+//! ## Attribute tables
+//!
+//! Attribute tables hold non-spatial data (no geometry column). They follow
+//! the GeoPackage spec Section 2.4 (`data_type = 'attributes'` in `gpkg_contents`).
+//!
+//! ```no_run
+//! use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, params};
+//! let gpkg = Gpkg::open_in_memory()?;
+//! let columns = vec![
+//!     ColumnSpec { name: "name".to_string(), column_type: ColumnType::Varchar },
+//!     ColumnSpec { name: "value".to_string(), column_type: ColumnType::Integer },
+//! ];
+//! let table = gpkg.create_attribute_table("observations", &columns)?;
+//! table.insert(params!["alpha", 7_i64])?;
+//!
+//! let rows = table.rows()?;
+//! let name: String = rows[0].property("name").unwrap().try_into()?;
+//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
+//! ```
+//!
 //! ## Arrow (feature = "arrow")
 //!
 //! The Arrow reader yields `RecordBatch`es for a layer. It borrows the `Gpkg`
@@ -136,12 +167,18 @@ mod types;
 pub mod vfs;
 
 #[cfg(feature = "arrow")]
+pub use arrow::attribute_reader::ArrowGpkgAttributeReader;
+#[cfg(feature = "arrow")]
+pub use arrow::attribute_writer::ArrowGpkgAttributeWriter;
+#[cfg(feature = "arrow")]
 pub use arrow::reader::ArrowGpkgReader;
 #[cfg(feature = "arrow")]
 pub use arrow::writer::ArrowGpkgWriter;
 
 pub use error::{GpkgError, Result};
-pub use gpkg::{Gpkg, GpkgFeature, GpkgFeatureBatchIterator, GpkgLayer};
+pub use gpkg::{
+    Gpkg, GpkgAttributeRow, GpkgAttributeTable, GpkgFeature, GpkgFeatureBatchIterator, GpkgLayer,
+};
 pub use sql_functions::register_spatial_functions;
 pub use types::{ColumnSpec, ColumnType, GpkgLayerMetadata, Value};
 
