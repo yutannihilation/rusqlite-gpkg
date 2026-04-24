@@ -13,3 +13,5 @@ web/wasm/target
 web/wasm/Cargo.lock
 web-dist
 .claude/settings.local.json
+
+/Cargo.lock
