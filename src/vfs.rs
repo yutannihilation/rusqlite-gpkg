@@ -277,7 +277,7 @@ struct HybridState {
 }
 
 fn is_main_sqlite_file(name: &str) -> bool {
-    name.ends_with(".sqlite")
+    !name.ends_with("-wal") && !name.ends_with("-shm") && !name.ends_with("-journal")
 }
 
 struct HybridStore;
@@ -423,7 +423,7 @@ mod tests {
     fn identifies_main_sqlite_file_by_suffix() {
         assert!(is_main_sqlite_file("data.sqlite"));
         assert!(!is_main_sqlite_file("data.sqlite-wal"));
-        assert!(!is_main_sqlite_file("data.gpkg"));
+        assert!(is_main_sqlite_file("data.gpkg"));
     }
 
     #[test]
