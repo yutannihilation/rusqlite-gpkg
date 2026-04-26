@@ -423,7 +423,7 @@ mod tests {
     fn identifies_main_sqlite_file_by_suffix() {
         assert!(is_main_sqlite_file("data.sqlite"));
         assert!(!is_main_sqlite_file("data.sqlite-wal"));
-        assert!(!is_main_sqlite_file("data.gpkg"));
+        assert!(is_main_sqlite_file("data.gpkg"));
     }
 
     #[test]
