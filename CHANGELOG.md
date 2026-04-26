@@ -9,6 +9,7 @@
 - Set `PRAGMA user_version` to `10400` (spec version 1.4.0) when creating a new GeoPackage (#28).
 - Register RTree spatial indexes in `gpkg_extensions` so other readers can discover them (#29).
 - Reset the Hybrid VFS's in-memory file map when `Gpkg::open_with_writer` reuses the cached default VFS, so a second call no longer reopens the previous database and fails `initialize_gpkg` with `table gpkg_spatial_ref_sys already exists`.
+- Forward Hybrid VFS writes to the user-supplied writer at the correct offset. SQLite writes pages at arbitrary offsets, but the previous implementation called `write_all` without seeking, so pages were appended in write-order and the resulting file was unusable as a GeoPackage. The writer bound on `Gpkg::open_with_writer`, `HybridVfsBuilder::new`, and `HybridVfsHandle::replace_writer` is now `Write + Seek`.
 
 ## [v0.0.7] (2026-04-05)
 

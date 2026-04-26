@@ -27,7 +27,7 @@
 //! # #[cfg(target_family = "wasm")]
 //! use rusqlite_gpkg::Gpkg;
 //! # #[cfg(target_family = "wasm")]
-//! # fn open_from_opfs<W: std::io::Write + 'static>(opfs_writer: W) -> Result<(), rusqlite_gpkg::GpkgError> {
+//! # fn open_from_opfs<W: std::io::Write + std::io::Seek + 'static>(opfs_writer: W) -> Result<(), rusqlite_gpkg::GpkgError> {
 //! let _gpkg = Gpkg::open_with_writer("demo.sqlite", opfs_writer)?;
 //! # Ok(())
 //! # }

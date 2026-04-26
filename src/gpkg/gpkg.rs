@@ -14,7 +14,7 @@ use crate::types::{ColumnSpec, GpkgLayerMetadata};
 use crate::vfs::HybridVfsBuilder;
 use rusqlite::OpenFlags;
 #[cfg(target_family = "wasm")]
-use std::io::Write;
+use std::io::{Seek, Write};
 use std::path::Path;
 use std::rc::Rc;
 
@@ -118,9 +118,13 @@ impl Gpkg {
     ///
     /// This is available only on wasm targets. It uses the Hybrid VFS internally
     /// and reuses a default VFS registration across calls.
+    ///
+    /// The writer must implement `Seek` because SQLite writes pages at arbitrary
+    /// offsets (page splits, journal replay, etc.) — a stream-only writer would
+    /// receive pages in write-order and produce a corrupt file.
     #[cfg(target_family = "wasm")]
     #[cfg_attr(docsrs, doc(cfg(target_family = "wasm")))]
-    pub fn open_with_writer<P: AsRef<Path>, W: Write + 'static>(
+    pub fn open_with_writer<P: AsRef<Path>, W: Write + Seek + 'static>(
         path: P,
         writer: W,
     ) -> Result<Self> {

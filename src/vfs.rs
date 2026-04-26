@@ -16,12 +16,15 @@ use sqlite_wasm_rs::utils::{
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
-type SharedWriter = Rc<RefCell<Box<dyn Write>>>;
+trait HybridWriter: Write + Seek {}
+impl<T: Write + Seek> HybridWriter for T {}
+
+type SharedWriter = Rc<RefCell<Box<dyn HybridWriter>>>;
 type SharedFiles = Rc<RefCell<HashMap<String, HybridFile>>>;
 type HybridAppData = RefCell<HybridState>;
 
@@ -31,7 +34,7 @@ thread_local! {
 
 /// Builder that holds the writer used for main database file writes.
 pub struct HybridVfsBuilder {
-    writer: Box<dyn Write>,
+    writer: Box<dyn HybridWriter>,
 }
 
 #[derive(Clone)]
@@ -43,7 +46,7 @@ pub struct HybridVfsHandle {
 
 impl HybridVfsBuilder {
     /// Create a single-file hybrid VFS builder.
-    pub fn new<W: Write + 'static>(writer: W) -> Self {
+    pub fn new<W: Write + Seek + 'static>(writer: W) -> Self {
         Self {
             writer: Box::new(writer),
         }
@@ -111,11 +114,11 @@ impl HybridVfsBuilder {
 
 impl HybridVfsHandle {
     /// Replace the writer used for main database file writes.
-    pub fn replace_writer<W: Write + 'static>(&self, writer: W) {
+    pub fn replace_writer<W: Write + Seek + 'static>(&self, writer: W) {
         self.replace_boxed_writer(Box::new(writer));
     }
 
-    fn replace_boxed_writer(&self, writer: Box<dyn Write>) {
+    fn replace_boxed_writer(&self, writer: Box<dyn HybridWriter>) {
         *self.writer.borrow_mut() = writer;
     }
 
@@ -216,8 +219,16 @@ impl VfsFile for MainFile {
             self.data.resize(end, 0);
         }
         self.data[offset..end].copy_from_slice(buf);
-        self.writer
-            .borrow_mut()
+
+        let mut writer = self.writer.borrow_mut();
+        // TODO: SQLite often emits sequential page writes, and each `seek` here
+        // forces `BufWriter::flush_buf` plus (for OPFS) a sync `get_size` JS
+        // call. If profiling shows this on the hot path, track the writer's
+        // last position and skip the seek when `pos == offset`.
+        writer
+            .seek(SeekFrom::Start(offset as u64))
+            .map_err(|e| VfsError::new(SQLITE_IOERR_WRITE, e.to_string()))?;
+        writer
             .write_all(buf)
             .map_err(|e| VfsError::new(SQLITE_IOERR_WRITE, e.to_string()))?;
         Ok(())
@@ -402,33 +413,25 @@ impl SQLiteVfs<HybridIoMethods> for HybridVfsImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{self, Write};
+    use std::io::{self, Cursor, Seek, Write};
 
-    #[derive(Default, Clone)]
-    struct RecordingState {
-        writes: Vec<u8>,
-        flush_count: usize,
-    }
+    /// Test sink that delegates `Write + Seek` to a shared `Cursor<Vec<u8>>`,
+    /// so the test can keep a clone to inspect the resulting bytes after the
+    /// `Box<dyn HybridWriter>` has swallowed the concrete type.
+    struct SharedCursor(Rc<RefCell<Cursor<Vec<u8>>>>);
 
-    struct RecordingWriter {
-        state: Rc<RefCell<RecordingState>>,
-    }
-
-    impl RecordingWriter {
-        fn new(state: Rc<RefCell<RecordingState>>) -> Self {
-            Self { state }
-        }
-    }
-
-    impl Write for RecordingWriter {
+    impl Write for SharedCursor {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.state.borrow_mut().writes.extend_from_slice(buf);
-            Ok(buf.len())
+            self.0.borrow_mut().write(buf)
         }
-
         fn flush(&mut self) -> io::Result<()> {
-            self.state.borrow_mut().flush_count += 1;
-            Ok(())
+            self.0.borrow_mut().flush()
+        }
+    }
+
+    impl Seek for SharedCursor {
+        fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+            self.0.borrow_mut().seek(pos)
         }
     }
 
@@ -468,7 +471,7 @@ mod tests {
 
     #[test]
     fn handle_clear_files_drops_entries_visible_to_state() {
-        let writer: SharedWriter = Rc::new(RefCell::new(Box::new(io::sink())));
+        let writer: SharedWriter = Rc::new(RefCell::new(Box::new(Cursor::new(Vec::<u8>::new()))));
         let files: SharedFiles = Rc::new(RefCell::new(HashMap::new()));
         let state = HybridState {
             files: files.clone(),
@@ -478,10 +481,10 @@ mod tests {
             .files
             .borrow_mut()
             .insert("main.gpkg".to_string(), HybridFile::Mem(MemFile::default()));
-        state
-            .files
-            .borrow_mut()
-            .insert("main.gpkg-journal".to_string(), HybridFile::Mem(MemFile::default()));
+        state.files.borrow_mut().insert(
+            "main.gpkg-journal".to_string(),
+            HybridFile::Mem(MemFile::default()),
+        );
 
         let handle = HybridVfsHandle {
             vfs_name: "test".to_string(),
@@ -495,12 +498,12 @@ mod tests {
     }
 
     #[test]
-    fn main_file_writes_forward_to_writer_and_flushes() {
-        let state = Rc::new(RefCell::new(RecordingState::default()));
-        let writer: SharedWriter =
-            Rc::new(RefCell::new(Box::new(RecordingWriter::new(state.clone()))));
-        let mut file = MainFile::new(writer.clone());
+    fn main_file_writes_forward_to_writer_at_offset() {
+        let cursor = Rc::new(RefCell::new(Cursor::new(Vec::<u8>::new())));
+        let writer: SharedWriter = Rc::new(RefCell::new(Box::new(SharedCursor(cursor.clone()))));
+        let mut file = MainFile::new(writer);
 
+        // The second write lands at offset 1, not appended at offset 3.
         file.write(&[1, 2, 3], 0).expect("write should succeed");
         file.write(&[9], 1).expect("write should succeed");
         file.flush().expect("flush should succeed");
@@ -510,9 +513,6 @@ mod tests {
         assert!(!complete);
         assert_eq!(buf, [1, 9, 3, 0]);
         assert_eq!(file.size().expect("size should succeed"), 3);
-
-        let state = state.borrow();
-        assert_eq!(state.writes, vec![1, 2, 3, 9]);
-        assert_eq!(state.flush_count, 1);
+        assert_eq!(cursor.borrow().get_ref().as_slice(), &[1, 9, 3]);
     }
 }
