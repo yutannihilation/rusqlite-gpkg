@@ -1,7 +1,7 @@
 //! Single-file hybrid VFS for wasm.
 //!
-//! - Writes to files ending with `.sqlite` are forwarded to a user-provided writer.
-//! - Writes to all other files (for example `-wal`, `-shm`) stay in memory.
+//! - Writes to the main database file are forwarded to a user-provided writer.
+//! - Writes to sidecar files (`-wal`, `-shm`, `-journal`) stay in memory.
 //! - This VFS intentionally does not validate filename intent.
 
 use crate::{Gpkg, GpkgError, Result as CrateResult};
@@ -22,13 +22,14 @@ use std::rc::Rc;
 use std::time::Duration;
 
 type SharedWriter = Rc<RefCell<Box<dyn Write>>>;
+type SharedFiles = Rc<RefCell<HashMap<String, HybridFile>>>;
 type HybridAppData = RefCell<HybridState>;
 
 thread_local! {
     static DEFAULT_HYBRID_VFS: RefCell<Option<HybridVfsHandle>> = const { RefCell::new(None) };
 }
 
-/// Builder that holds the writer used for main `.sqlite` file writes.
+/// Builder that holds the writer used for main database file writes.
 pub struct HybridVfsBuilder {
     writer: Box<dyn Write>,
 }
@@ -37,6 +38,7 @@ pub struct HybridVfsBuilder {
 pub struct HybridVfsHandle {
     vfs_name: String,
     writer: SharedWriter,
+    files: SharedFiles,
 }
 
 impl HybridVfsBuilder {
@@ -54,7 +56,7 @@ impl HybridVfsBuilder {
         default_vfs: bool,
     ) -> Result<*mut sqlite3_vfs, RegisterVfsError> {
         let state = HybridState {
-            files: HashMap::new(),
+            files: Rc::new(RefCell::new(HashMap::new())),
             writer: Rc::new(RefCell::new(self.writer)),
         };
         register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, RefCell::new(state), default_vfs)
@@ -67,30 +69,32 @@ impl HybridVfsBuilder {
         default_vfs: bool,
     ) -> Result<HybridVfsHandle, RegisterVfsError> {
         let writer: SharedWriter = Rc::new(RefCell::new(self.writer));
+        let files: SharedFiles = Rc::new(RefCell::new(HashMap::new()));
         let state = HybridState {
-            files: HashMap::new(),
+            files: files.clone(),
             writer: writer.clone(),
         };
         register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, RefCell::new(state), default_vfs)?;
         Ok(HybridVfsHandle {
             vfs_name: vfs_name.to_string(),
             writer,
+            files,
         })
     }
 
     /// Convenience helper for wasm: register/reuse a default hybrid VFS and open a GeoPackage.
     ///
     /// On first use, this registers a process-local default VFS. On subsequent calls,
-    /// it reuses the same registration and only replaces the writer.
-    ///
-    /// `sqlite_filename` must end with `.sqlite` so main DB writes are routed to
-    /// the provided writer.
+    /// it reuses the same registration, replaces the writer, and clears the in-memory
+    /// file map so SQLite sees a fresh database. Any `Gpkg` instances from a previous
+    /// call must be dropped before calling this again.
     pub fn open_gpkg<P: AsRef<Path>>(self, sqlite_filename: P) -> CrateResult<Gpkg> {
         let writer = self.writer;
         let handle = DEFAULT_HYBRID_VFS.with(|slot| -> CrateResult<HybridVfsHandle> {
             let mut slot = slot.borrow_mut();
             if let Some(handle) = slot.as_ref() {
                 handle.replace_boxed_writer(writer);
+                handle.clear_files();
                 return Ok(handle.clone());
             }
 
@@ -106,13 +110,20 @@ impl HybridVfsBuilder {
 }
 
 impl HybridVfsHandle {
-    /// Replace the writer used for main `.sqlite` file writes.
+    /// Replace the writer used for main database file writes.
     pub fn replace_writer<W: Write + 'static>(&self, writer: W) {
         self.replace_boxed_writer(Box::new(writer));
     }
 
     fn replace_boxed_writer(&self, writer: Box<dyn Write>) {
         *self.writer.borrow_mut() = writer;
+    }
+
+    /// Drop every in-memory file tracked by this VFS so the next `open_gpkg`
+    /// starts from an empty database. Calling this while a `Gpkg` from a prior
+    /// open is still alive will leave that connection with dangling references.
+    fn clear_files(&self) {
+        self.files.borrow_mut().clear();
     }
 
     /// Open a GeoPackage using this registered Hybrid VFS.
@@ -272,7 +283,7 @@ impl VfsFile for HybridFile {
 }
 
 struct HybridState {
-    files: HashMap<String, HybridFile>,
+    files: SharedFiles,
     writer: SharedWriter,
 }
 
@@ -285,26 +296,26 @@ struct HybridStore;
 impl VfsStore<HybridFile, HybridAppData> for HybridStore {
     fn add_file(vfs: *mut sqlite3_vfs, file: &str, _flags: i32) -> VfsResult<()> {
         let app_data = unsafe { Self::app_data(vfs) };
-        let mut state = app_data.borrow_mut();
+        let state = app_data.borrow();
         let item = if is_main_sqlite_file(file) {
             HybridFile::Main(MainFile::new(state.writer.clone()))
         } else {
             HybridFile::Mem(MemFile::default())
         };
-        state.files.insert(file.to_string(), item);
+        state.files.borrow_mut().insert(file.to_string(), item);
         Ok(())
     }
 
     fn contains_file(vfs: *mut sqlite3_vfs, file: &str) -> VfsResult<bool> {
         let app_data = unsafe { Self::app_data(vfs) };
         let state = app_data.borrow();
-        Ok(state.files.contains_key(file))
+        Ok(state.files.borrow().contains_key(file))
     }
 
     fn delete_file(vfs: *mut sqlite3_vfs, file: &str) -> VfsResult<()> {
         let app_data = unsafe { Self::app_data(vfs) };
-        let mut state = app_data.borrow_mut();
-        if state.files.remove(file).is_none() {
+        let state = app_data.borrow();
+        if state.files.borrow_mut().remove(file).is_none() {
             return Err(VfsError::new(
                 SQLITE_IOERR_DELETE,
                 format!("{file} not found"),
@@ -319,8 +330,9 @@ impl VfsStore<HybridFile, HybridAppData> for HybridStore {
     ) -> VfsResult<i32> {
         let app_data = unsafe { Self::app_data(vfs_file.vfs) };
         let state = app_data.borrow();
+        let files = state.files.borrow();
         let name = unsafe { vfs_file.name() };
-        match state.files.get(name) {
+        match files.get(name) {
             Some(file) => f(file),
             None => Err(VfsError::new(
                 SQLITE_IOERR_READ,
@@ -334,9 +346,10 @@ impl VfsStore<HybridFile, HybridAppData> for HybridStore {
         f: F,
     ) -> VfsResult<i32> {
         let app_data = unsafe { Self::app_data(vfs_file.vfs) };
-        let mut state = app_data.borrow_mut();
+        let state = app_data.borrow();
+        let mut files = state.files.borrow_mut();
         let name = unsafe { vfs_file.name() };
-        match state.files.get_mut(name) {
+        match files.get_mut(name) {
             Some(file) => f(file),
             None => Err(VfsError::new(
                 SQLITE_IOERR_WRITE,
@@ -451,6 +464,34 @@ mod tests {
 
         file.truncate(3).expect("truncate should succeed");
         assert_eq!(file.size().expect("size should succeed"), 3);
+    }
+
+    #[test]
+    fn handle_clear_files_drops_entries_visible_to_state() {
+        let writer: SharedWriter = Rc::new(RefCell::new(Box::new(io::sink())));
+        let files: SharedFiles = Rc::new(RefCell::new(HashMap::new()));
+        let state = HybridState {
+            files: files.clone(),
+            writer: writer.clone(),
+        };
+        state
+            .files
+            .borrow_mut()
+            .insert("main.gpkg".to_string(), HybridFile::Mem(MemFile::default()));
+        state
+            .files
+            .borrow_mut()
+            .insert("main.gpkg-journal".to_string(), HybridFile::Mem(MemFile::default()));
+
+        let handle = HybridVfsHandle {
+            vfs_name: "test".to_string(),
+            writer,
+            files,
+        };
+
+        handle.clear_files();
+
+        assert!(state.files.borrow().is_empty());
     }
 
     #[test]

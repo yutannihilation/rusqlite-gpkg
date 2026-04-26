@@ -8,6 +8,7 @@
 - Set `PRAGMA application_id` to `0x47504B47` ("GPKG") when creating a new GeoPackage, as required by the spec (#28).
 - Set `PRAGMA user_version` to `10400` (spec version 1.4.0) when creating a new GeoPackage (#28).
 - Register RTree spatial indexes in `gpkg_extensions` so other readers can discover them (#29).
+- Reset the Hybrid VFS's in-memory file map when `Gpkg::open_with_writer` reuses the cached default VFS, so a second call no longer reopens the previous database and fails `initialize_gpkg` with `table gpkg_spatial_ref_sys already exists`.
 
 ## [v0.0.7] (2026-04-05)
 
