@@ -277,7 +277,7 @@ struct HybridState {
 }
 
 fn is_main_sqlite_file(name: &str) -> bool {
-    name.ends_with(".sqlite")
+    !name.ends_with("-wal") && !name.ends_with("-shm") && !name.ends_with("-journal")
 }
 
 struct HybridStore;
