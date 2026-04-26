@@ -24,9 +24,54 @@ use std::time::Duration;
 trait HybridWriter: Write + Seek {}
 impl<T: Write + Seek> HybridWriter for T {}
 
-type SharedWriter = Rc<RefCell<Box<dyn HybridWriter>>>;
+type SharedWriter = Rc<RefCell<WriterState>>;
 type SharedFiles = Rc<RefCell<HashMap<String, HybridFile>>>;
 type HybridAppData = RefCell<HybridState>;
+
+struct WriterState {
+    writer: Box<dyn HybridWriter>,
+    /// Last known cursor position. `None` means unknown — initial state,
+    /// after a writer replacement, or after a failed seek/write that may
+    /// have left the cursor at an indeterminate offset.
+    pos: Option<u64>,
+}
+
+impl WriterState {
+    fn new(writer: Box<dyn HybridWriter>) -> Self {
+        Self { writer, pos: None }
+    }
+
+    /// Write `buf` at `offset`, skipping the seek when the cursor is already
+    /// there. SQLite emits long runs of contiguous page writes; each `seek`
+    /// otherwise forces `BufWriter::flush_buf` plus, on OPFS, a synchronous
+    /// `get_size` JS round-trip.
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> std::io::Result<()> {
+        if self.pos != Some(offset) {
+            self.pos = None;
+            self.writer.seek(SeekFrom::Start(offset))?;
+            self.pos = Some(offset);
+        }
+        match self.writer.write_all(buf) {
+            Ok(()) => {
+                self.pos = Some(offset + buf.len() as u64);
+                Ok(())
+            }
+            Err(e) => {
+                self.pos = None;
+                Err(e)
+            }
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+
+    fn replace(&mut self, writer: Box<dyn HybridWriter>) {
+        self.writer = writer;
+        self.pos = None;
+    }
+}
 
 thread_local! {
     static DEFAULT_HYBRID_VFS: RefCell<Option<HybridVfsHandle>> = const { RefCell::new(None) };
@@ -60,7 +105,7 @@ impl HybridVfsBuilder {
     ) -> Result<*mut sqlite3_vfs, RegisterVfsError> {
         let state = HybridState {
             files: Rc::new(RefCell::new(HashMap::new())),
-            writer: Rc::new(RefCell::new(self.writer)),
+            writer: Rc::new(RefCell::new(WriterState::new(self.writer))),
         };
         register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, RefCell::new(state), default_vfs)
     }
@@ -71,7 +116,7 @@ impl HybridVfsBuilder {
         vfs_name: &str,
         default_vfs: bool,
     ) -> Result<HybridVfsHandle, RegisterVfsError> {
-        let writer: SharedWriter = Rc::new(RefCell::new(self.writer));
+        let writer: SharedWriter = Rc::new(RefCell::new(WriterState::new(self.writer)));
         let files: SharedFiles = Rc::new(RefCell::new(HashMap::new()));
         let state = HybridState {
             files: files.clone(),
@@ -119,7 +164,7 @@ impl HybridVfsHandle {
     }
 
     fn replace_boxed_writer(&self, writer: Box<dyn HybridWriter>) {
-        *self.writer.borrow_mut() = writer;
+        self.writer.borrow_mut().replace(writer);
     }
 
     /// Drop every in-memory file tracked by this VFS so the next `open_gpkg`
@@ -220,16 +265,9 @@ impl VfsFile for MainFile {
         }
         self.data[offset..end].copy_from_slice(buf);
 
-        let mut writer = self.writer.borrow_mut();
-        // TODO: SQLite often emits sequential page writes, and each `seek` here
-        // forces `BufWriter::flush_buf` plus (for OPFS) a sync `get_size` JS
-        // call. If profiling shows this on the hot path, track the writer's
-        // last position and skip the seek when `pos == offset`.
-        writer
-            .seek(SeekFrom::Start(offset as u64))
-            .map_err(|e| VfsError::new(SQLITE_IOERR_WRITE, e.to_string()))?;
-        writer
-            .write_all(buf)
+        self.writer
+            .borrow_mut()
+            .write_at(buf, offset as u64)
             .map_err(|e| VfsError::new(SQLITE_IOERR_WRITE, e.to_string()))?;
         Ok(())
     }
@@ -471,7 +509,9 @@ mod tests {
 
     #[test]
     fn handle_clear_files_drops_entries_visible_to_state() {
-        let writer: SharedWriter = Rc::new(RefCell::new(Box::new(Cursor::new(Vec::<u8>::new()))));
+        let writer: SharedWriter = Rc::new(RefCell::new(WriterState::new(Box::new(Cursor::new(
+            Vec::<u8>::new(),
+        )))));
         let files: SharedFiles = Rc::new(RefCell::new(HashMap::new()));
         let state = HybridState {
             files: files.clone(),
@@ -500,7 +540,9 @@ mod tests {
     #[test]
     fn main_file_writes_forward_to_writer_at_offset() {
         let cursor = Rc::new(RefCell::new(Cursor::new(Vec::<u8>::new())));
-        let writer: SharedWriter = Rc::new(RefCell::new(Box::new(SharedCursor(cursor.clone()))));
+        let writer: SharedWriter = Rc::new(RefCell::new(WriterState::new(Box::new(SharedCursor(
+            cursor.clone(),
+        )))));
         let mut file = MainFile::new(writer);
 
         // The second write lands at offset 1, not appended at offset 3.
@@ -514,5 +556,48 @@ mod tests {
         assert_eq!(buf, [1, 9, 3, 0]);
         assert_eq!(file.size().expect("size should succeed"), 3);
         assert_eq!(cursor.borrow().get_ref().as_slice(), &[1, 9, 3]);
+    }
+
+    struct CountingSeek {
+        inner: Cursor<Vec<u8>>,
+        seek_count: Rc<RefCell<usize>>,
+    }
+
+    impl Write for CountingSeek {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.inner.write(buf)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    impl Seek for CountingSeek {
+        fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+            *self.seek_count.borrow_mut() += 1;
+            self.inner.seek(pos)
+        }
+    }
+
+    #[test]
+    fn main_file_skips_seek_for_sequential_writes() {
+        let seek_count = Rc::new(RefCell::new(0_usize));
+        let writer: SharedWriter =
+            Rc::new(RefCell::new(WriterState::new(Box::new(CountingSeek {
+                inner: Cursor::new(Vec::<u8>::new()),
+                seek_count: seek_count.clone(),
+            }))));
+        let mut file = MainFile::new(writer);
+
+        file.write(&[1, 2, 3], 0).expect("first write");
+        assert_eq!(*seek_count.borrow(), 1);
+
+        // Sequential write at offset 3 should reuse the cursor position.
+        file.write(&[4, 5, 6], 3).expect("sequential write");
+        assert_eq!(*seek_count.borrow(), 1);
+
+        // Non-sequential write must seek again.
+        file.write(&[9], 0).expect("backward write");
+        assert_eq!(*seek_count.borrow(), 2);
     }
 }
