@@ -1,7 +1,7 @@
 //! Single-file hybrid VFS for wasm.
 //!
-//! - Writes to files ending with `.sqlite` are forwarded to a user-provided writer.
-//! - Writes to all other files (for example `-wal`, `-shm`) stay in memory.
+//! - Writes to the main database file are forwarded to a user-provided writer.
+//! - Writes to sidecar files (`-wal`, `-shm`, `-journal`) stay in memory.
 //! - This VFS intentionally does not validate filename intent.
 
 use crate::{Gpkg, GpkgError, Result as CrateResult};
@@ -16,32 +16,82 @@ use sqlite_wasm_rs::utils::{
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
-type SharedWriter = Rc<RefCell<Box<dyn Write>>>;
+trait HybridWriter: Write + Seek {}
+impl<T: Write + Seek> HybridWriter for T {}
+
+type SharedWriter = Rc<RefCell<WriterState>>;
+type SharedFiles = Rc<RefCell<HashMap<String, HybridFile>>>;
 type HybridAppData = RefCell<HybridState>;
+
+struct WriterState {
+    writer: Box<dyn HybridWriter>,
+    /// Last known cursor position. `None` means unknown — initial state,
+    /// after a writer replacement, or after a failed seek/write that may
+    /// have left the cursor at an indeterminate offset.
+    pos: Option<u64>,
+}
+
+impl WriterState {
+    fn new(writer: Box<dyn HybridWriter>) -> Self {
+        Self { writer, pos: None }
+    }
+
+    /// Write `buf` at `offset`, skipping the seek when the cursor is already
+    /// there. SQLite emits long runs of contiguous page writes; each `seek`
+    /// otherwise forces `BufWriter::flush_buf` plus, on OPFS, a synchronous
+    /// `get_size` JS round-trip.
+    fn write_at(&mut self, buf: &[u8], offset: u64) -> std::io::Result<()> {
+        if self.pos != Some(offset) {
+            self.pos = None;
+            self.writer.seek(SeekFrom::Start(offset))?;
+            self.pos = Some(offset);
+        }
+        match self.writer.write_all(buf) {
+            Ok(()) => {
+                self.pos = Some(offset + buf.len() as u64);
+                Ok(())
+            }
+            Err(e) => {
+                self.pos = None;
+                Err(e)
+            }
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+
+    fn replace(&mut self, writer: Box<dyn HybridWriter>) {
+        self.writer = writer;
+        self.pos = None;
+    }
+}
 
 thread_local! {
     static DEFAULT_HYBRID_VFS: RefCell<Option<HybridVfsHandle>> = const { RefCell::new(None) };
 }
 
-/// Builder that holds the writer used for main `.sqlite` file writes.
+/// Builder that holds the writer used for main database file writes.
 pub struct HybridVfsBuilder {
-    writer: Box<dyn Write>,
+    writer: Box<dyn HybridWriter>,
 }
 
 #[derive(Clone)]
 pub struct HybridVfsHandle {
     vfs_name: String,
     writer: SharedWriter,
+    files: SharedFiles,
 }
 
 impl HybridVfsBuilder {
     /// Create a single-file hybrid VFS builder.
-    pub fn new<W: Write + 'static>(writer: W) -> Self {
+    pub fn new<W: Write + Seek + 'static>(writer: W) -> Self {
         Self {
             writer: Box::new(writer),
         }
@@ -54,8 +104,8 @@ impl HybridVfsBuilder {
         default_vfs: bool,
     ) -> Result<*mut sqlite3_vfs, RegisterVfsError> {
         let state = HybridState {
-            files: HashMap::new(),
-            writer: Rc::new(RefCell::new(self.writer)),
+            files: Rc::new(RefCell::new(HashMap::new())),
+            writer: Rc::new(RefCell::new(WriterState::new(self.writer))),
         };
         register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, RefCell::new(state), default_vfs)
     }
@@ -66,31 +116,33 @@ impl HybridVfsBuilder {
         vfs_name: &str,
         default_vfs: bool,
     ) -> Result<HybridVfsHandle, RegisterVfsError> {
-        let writer: SharedWriter = Rc::new(RefCell::new(self.writer));
+        let writer: SharedWriter = Rc::new(RefCell::new(WriterState::new(self.writer)));
+        let files: SharedFiles = Rc::new(RefCell::new(HashMap::new()));
         let state = HybridState {
-            files: HashMap::new(),
+            files: files.clone(),
             writer: writer.clone(),
         };
         register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, RefCell::new(state), default_vfs)?;
         Ok(HybridVfsHandle {
             vfs_name: vfs_name.to_string(),
             writer,
+            files,
         })
     }
 
     /// Convenience helper for wasm: register/reuse a default hybrid VFS and open a GeoPackage.
     ///
     /// On first use, this registers a process-local default VFS. On subsequent calls,
-    /// it reuses the same registration and only replaces the writer.
-    ///
-    /// `sqlite_filename` must end with `.sqlite` so main DB writes are routed to
-    /// the provided writer.
+    /// it reuses the same registration, replaces the writer, and clears the in-memory
+    /// file map so SQLite sees a fresh database. Any `Gpkg` instances from a previous
+    /// call must be dropped before calling this again.
     pub fn open_gpkg<P: AsRef<Path>>(self, sqlite_filename: P) -> CrateResult<Gpkg> {
         let writer = self.writer;
         let handle = DEFAULT_HYBRID_VFS.with(|slot| -> CrateResult<HybridVfsHandle> {
             let mut slot = slot.borrow_mut();
             if let Some(handle) = slot.as_ref() {
                 handle.replace_boxed_writer(writer);
+                handle.clear_files();
                 return Ok(handle.clone());
             }
 
@@ -106,13 +158,20 @@ impl HybridVfsBuilder {
 }
 
 impl HybridVfsHandle {
-    /// Replace the writer used for main `.sqlite` file writes.
-    pub fn replace_writer<W: Write + 'static>(&self, writer: W) {
+    /// Replace the writer used for main database file writes.
+    pub fn replace_writer<W: Write + Seek + 'static>(&self, writer: W) {
         self.replace_boxed_writer(Box::new(writer));
     }
 
-    fn replace_boxed_writer(&self, writer: Box<dyn Write>) {
-        *self.writer.borrow_mut() = writer;
+    fn replace_boxed_writer(&self, writer: Box<dyn HybridWriter>) {
+        self.writer.borrow_mut().replace(writer);
+    }
+
+    /// Drop every in-memory file tracked by this VFS so the next `open_gpkg`
+    /// starts from an empty database. Calling this while a `Gpkg` from a prior
+    /// open is still alive will leave that connection with dangling references.
+    fn clear_files(&self) {
+        self.files.borrow_mut().clear();
     }
 
     /// Open a GeoPackage using this registered Hybrid VFS.
@@ -205,9 +264,10 @@ impl VfsFile for MainFile {
             self.data.resize(end, 0);
         }
         self.data[offset..end].copy_from_slice(buf);
+
         self.writer
             .borrow_mut()
-            .write_all(buf)
+            .write_at(buf, offset as u64)
             .map_err(|e| VfsError::new(SQLITE_IOERR_WRITE, e.to_string()))?;
         Ok(())
     }
@@ -272,12 +332,12 @@ impl VfsFile for HybridFile {
 }
 
 struct HybridState {
-    files: HashMap<String, HybridFile>,
+    files: SharedFiles,
     writer: SharedWriter,
 }
 
 fn is_main_sqlite_file(name: &str) -> bool {
-    name.ends_with(".sqlite")
+    !name.ends_with("-wal") && !name.ends_with("-shm") && !name.ends_with("-journal")
 }
 
 struct HybridStore;
@@ -285,26 +345,26 @@ struct HybridStore;
 impl VfsStore<HybridFile, HybridAppData> for HybridStore {
     fn add_file(vfs: *mut sqlite3_vfs, file: &str, _flags: i32) -> VfsResult<()> {
         let app_data = unsafe { Self::app_data(vfs) };
-        let mut state = app_data.borrow_mut();
+        let state = app_data.borrow();
         let item = if is_main_sqlite_file(file) {
             HybridFile::Main(MainFile::new(state.writer.clone()))
         } else {
             HybridFile::Mem(MemFile::default())
         };
-        state.files.insert(file.to_string(), item);
+        state.files.borrow_mut().insert(file.to_string(), item);
         Ok(())
     }
 
     fn contains_file(vfs: *mut sqlite3_vfs, file: &str) -> VfsResult<bool> {
         let app_data = unsafe { Self::app_data(vfs) };
         let state = app_data.borrow();
-        Ok(state.files.contains_key(file))
+        Ok(state.files.borrow().contains_key(file))
     }
 
     fn delete_file(vfs: *mut sqlite3_vfs, file: &str) -> VfsResult<()> {
         let app_data = unsafe { Self::app_data(vfs) };
-        let mut state = app_data.borrow_mut();
-        if state.files.remove(file).is_none() {
+        let state = app_data.borrow();
+        if state.files.borrow_mut().remove(file).is_none() {
             return Err(VfsError::new(
                 SQLITE_IOERR_DELETE,
                 format!("{file} not found"),
@@ -319,8 +379,9 @@ impl VfsStore<HybridFile, HybridAppData> for HybridStore {
     ) -> VfsResult<i32> {
         let app_data = unsafe { Self::app_data(vfs_file.vfs) };
         let state = app_data.borrow();
+        let files = state.files.borrow();
         let name = unsafe { vfs_file.name() };
-        match state.files.get(name) {
+        match files.get(name) {
             Some(file) => f(file),
             None => Err(VfsError::new(
                 SQLITE_IOERR_READ,
@@ -334,9 +395,10 @@ impl VfsStore<HybridFile, HybridAppData> for HybridStore {
         f: F,
     ) -> VfsResult<i32> {
         let app_data = unsafe { Self::app_data(vfs_file.vfs) };
-        let mut state = app_data.borrow_mut();
+        let state = app_data.borrow();
+        let mut files = state.files.borrow_mut();
         let name = unsafe { vfs_file.name() };
-        match state.files.get_mut(name) {
+        match files.get_mut(name) {
             Some(file) => f(file),
             None => Err(VfsError::new(
                 SQLITE_IOERR_WRITE,
@@ -389,33 +451,25 @@ impl SQLiteVfs<HybridIoMethods> for HybridVfsImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::{self, Write};
+    use std::io::{self, Cursor, Seek, Write};
 
-    #[derive(Default, Clone)]
-    struct RecordingState {
-        writes: Vec<u8>,
-        flush_count: usize,
-    }
+    /// Test sink that delegates `Write + Seek` to a shared `Cursor<Vec<u8>>`,
+    /// so the test can keep a clone to inspect the resulting bytes after the
+    /// `Box<dyn HybridWriter>` has swallowed the concrete type.
+    struct SharedCursor(Rc<RefCell<Cursor<Vec<u8>>>>);
 
-    struct RecordingWriter {
-        state: Rc<RefCell<RecordingState>>,
-    }
-
-    impl RecordingWriter {
-        fn new(state: Rc<RefCell<RecordingState>>) -> Self {
-            Self { state }
-        }
-    }
-
-    impl Write for RecordingWriter {
+    impl Write for SharedCursor {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            self.state.borrow_mut().writes.extend_from_slice(buf);
-            Ok(buf.len())
+            self.0.borrow_mut().write(buf)
         }
-
         fn flush(&mut self) -> io::Result<()> {
-            self.state.borrow_mut().flush_count += 1;
-            Ok(())
+            self.0.borrow_mut().flush()
+        }
+    }
+
+    impl Seek for SharedCursor {
+        fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+            self.0.borrow_mut().seek(pos)
         }
     }
 
@@ -423,7 +477,7 @@ mod tests {
     fn identifies_main_sqlite_file_by_suffix() {
         assert!(is_main_sqlite_file("data.sqlite"));
         assert!(!is_main_sqlite_file("data.sqlite-wal"));
-        assert!(!is_main_sqlite_file("data.gpkg"));
+        assert!(is_main_sqlite_file("data.gpkg"));
     }
 
     #[test]
@@ -454,12 +508,44 @@ mod tests {
     }
 
     #[test]
-    fn main_file_writes_forward_to_writer_and_flushes() {
-        let state = Rc::new(RefCell::new(RecordingState::default()));
-        let writer: SharedWriter =
-            Rc::new(RefCell::new(Box::new(RecordingWriter::new(state.clone()))));
-        let mut file = MainFile::new(writer.clone());
+    fn handle_clear_files_drops_entries_visible_to_state() {
+        let writer: SharedWriter = Rc::new(RefCell::new(WriterState::new(Box::new(Cursor::new(
+            Vec::<u8>::new(),
+        )))));
+        let files: SharedFiles = Rc::new(RefCell::new(HashMap::new()));
+        let state = HybridState {
+            files: files.clone(),
+            writer: writer.clone(),
+        };
+        state
+            .files
+            .borrow_mut()
+            .insert("main.gpkg".to_string(), HybridFile::Mem(MemFile::default()));
+        state.files.borrow_mut().insert(
+            "main.gpkg-journal".to_string(),
+            HybridFile::Mem(MemFile::default()),
+        );
 
+        let handle = HybridVfsHandle {
+            vfs_name: "test".to_string(),
+            writer,
+            files,
+        };
+
+        handle.clear_files();
+
+        assert!(state.files.borrow().is_empty());
+    }
+
+    #[test]
+    fn main_file_writes_forward_to_writer_at_offset() {
+        let cursor = Rc::new(RefCell::new(Cursor::new(Vec::<u8>::new())));
+        let writer: SharedWriter = Rc::new(RefCell::new(WriterState::new(Box::new(SharedCursor(
+            cursor.clone(),
+        )))));
+        let mut file = MainFile::new(writer);
+
+        // The second write lands at offset 1, not appended at offset 3.
         file.write(&[1, 2, 3], 0).expect("write should succeed");
         file.write(&[9], 1).expect("write should succeed");
         file.flush().expect("flush should succeed");
@@ -469,9 +555,49 @@ mod tests {
         assert!(!complete);
         assert_eq!(buf, [1, 9, 3, 0]);
         assert_eq!(file.size().expect("size should succeed"), 3);
+        assert_eq!(cursor.borrow().get_ref().as_slice(), &[1, 9, 3]);
+    }
 
-        let state = state.borrow();
-        assert_eq!(state.writes, vec![1, 2, 3, 9]);
-        assert_eq!(state.flush_count, 1);
+    struct CountingSeek {
+        inner: Cursor<Vec<u8>>,
+        seek_count: Rc<RefCell<usize>>,
+    }
+
+    impl Write for CountingSeek {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.inner.write(buf)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    impl Seek for CountingSeek {
+        fn seek(&mut self, pos: io::SeekFrom) -> io::Result<u64> {
+            *self.seek_count.borrow_mut() += 1;
+            self.inner.seek(pos)
+        }
+    }
+
+    #[test]
+    fn main_file_skips_seek_for_sequential_writes() {
+        let seek_count = Rc::new(RefCell::new(0_usize));
+        let writer: SharedWriter =
+            Rc::new(RefCell::new(WriterState::new(Box::new(CountingSeek {
+                inner: Cursor::new(Vec::<u8>::new()),
+                seek_count: seek_count.clone(),
+            }))));
+        let mut file = MainFile::new(writer);
+
+        file.write(&[1, 2, 3], 0).expect("first write");
+        assert_eq!(*seek_count.borrow(), 1);
+
+        // Sequential write at offset 3 should reuse the cursor position.
+        file.write(&[4, 5, 6], 3).expect("sequential write");
+        assert_eq!(*seek_count.borrow(), 1);
+
+        // Non-sequential write must seek again.
+        file.write(&[9], 0).expect("backward write");
+        assert_eq!(*seek_count.borrow(), 2);
     }
 }
