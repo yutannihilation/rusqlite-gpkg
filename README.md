@@ -19,10 +19,16 @@ See `web/README.md` for implementation details and design notes.
 
 `rusqlite-gpkg` provides a small API around the main GeoPackage concepts:
 
-- `Gpkg` represents the whole data of GeoPackage data.
-- `GpkgLayer` represents a single layer in the data.
-- `GpkgFeature` represents a single feature in the layer.
-- `Value` represents a single property value related to the feature.
+**Feature layers** (spatial data with geometry):
+- `Gpkg` represents the GeoPackage connection.
+- `GpkgLayer` represents a single feature layer (table with geometry column).
+- `GpkgFeature` represents a single feature (row with geometry + properties).
+
+**Attribute tables** (non-spatial tabular data, no geometry):
+- `GpkgAttributeTable` represents a single attribute table.
+- `GpkgAttributeRow` represents a single row (properties only).
+
+`Value` represents a single property value in both cases.
 
 Apache Arrow support is available behind the `arrow` feature flag.
 You can find some example codes in the bottom of this README.
@@ -56,11 +62,17 @@ operations. There are multiple ways to open it:
 - `Gpkg::open(path)`: open a new or existing file for read/write.
 - `Gpkg::open_in_memory()`: create a transient in-memory GeoPackage.
 
-From a `Gpkg`, you can discover or create layers:
+From a `Gpkg`, you can discover or create content:
 
-- `list_layers()` returns the layer/table names.
+Feature layers:
+- `list_layers()` returns the feature layer names.
 - `get_layer(name)` loads a `GpkgLayer` by name.
 - `create_layer(...)` creates a new feature layer and returns a `GpkgLayer`.
+
+Attribute tables:
+- `list_attribute_tables()` returns the attribute table names.
+- `get_attribute_table(name)` loads a `GpkgAttributeTable` by name.
+- `create_attribute_table(...)` creates a new attribute table and returns a `GpkgAttributeTable`.
 
 ```rs
 use rusqlite_gpkg::Gpkg;
@@ -211,6 +223,31 @@ assert_eq!(maybe_i64, None);
 # Ok::<(), rusqlite_gpkg::GpkgError>(())
 ```
 
+### GpkgAttributeTable
+
+`GpkgAttributeTable` represents a non-spatial table (no geometry column).
+It follows the GeoPackage spec Section 2.4 (`data_type = 'attributes'` in
+`gpkg_contents`). The API mirrors `GpkgLayer` but without geometry arguments.
+
+```rs
+use rusqlite_gpkg::{ColumnSpec, ColumnType, Gpkg, params};
+
+let gpkg = Gpkg::open_in_memory()?;
+let columns = vec![
+    ColumnSpec { name: "name".to_string(), column_type: ColumnType::Varchar },
+    ColumnSpec { name: "value".to_string(), column_type: ColumnType::Integer },
+];
+let table = gpkg.create_attribute_table("observations", &columns)?;
+
+table.insert(params!["alpha", 7_i64])?;
+table.insert(params!["beta", 9_i64])?;
+
+let rows = table.rows()?;
+let name: String = rows[0].property("name").unwrap().try_into()?;
+assert_eq!(name, "alpha");
+# Ok::<(), rusqlite_gpkg::GpkgError>(())
+```
+
 ## Disclaimer
 
 Most of the implementation is coded by Codex, while the primary idea is based on my own work in <https://github.com/yutannihilation/duckdb-ext-st-read-multi/pulls>. This probably requires more testing against real data; feedback is welcome!
@@ -338,6 +375,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Write the batch into a new GeoPackage layer.
     let mut writer = ArrowGpkgWriter::new(&gpkg, "my_layer")?;
     writer.write(&batch)?;
+
+    Ok(())
+}
+```
+
+### Arrow attribute table reader/writer
+
+```rs
+use arrow_array::{Int64Array, RecordBatch, StringArray};
+use arrow_schema::{Field, Schema};
+use rusqlite_gpkg::{ArrowGpkgAttributeReader, ArrowGpkgAttributeWriter, Gpkg};
+use std::sync::Arc;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let gpkg = Gpkg::open_in_memory()?;
+
+    // Build a RecordBatch without any geometry column.
+    let schema = Arc::new(Schema::new(vec![
+        Arc::new(Field::new("name", arrow_schema::DataType::Utf8, true)),
+        Arc::new(Field::new("value", arrow_schema::DataType::Int64, true)),
+    ]));
+    let name_array = Arc::new(StringArray::from(vec!["alpha", "beta"]));
+    let value_array = Arc::new(Int64Array::from(vec![10, 20]));
+    let batch = RecordBatch::try_new(schema, vec![name_array, value_array])?;
+
+    // Write into a new attribute table.
+    let mut writer = ArrowGpkgAttributeWriter::new(&gpkg, "observations")?;
+    writer.write(&batch)?;
+
+    // Read back.
+    let mut reader = ArrowGpkgAttributeReader::new(&gpkg, "observations", 1024)?;
+    while let Some(batch) = reader.next() {
+        let batch = batch?;
+        println!("rows = {}", batch.num_rows());
+    }
 
     Ok(())
 }

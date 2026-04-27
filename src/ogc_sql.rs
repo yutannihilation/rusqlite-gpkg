@@ -31,13 +31,27 @@ CREATE TABLE gpkg_extensions (
 );
 ";
 
-pub(crate) const SQL_LIST_LAYERS: &str = "SELECT table_name FROM gpkg_contents";
+pub(crate) const SQL_LIST_LAYERS: &str =
+    "SELECT table_name FROM gpkg_contents WHERE data_type = 'features'";
+
+pub(crate) const SQL_LIST_ATTRIBUTE_TABLES: &str =
+    "SELECT table_name FROM gpkg_contents WHERE data_type = 'attributes'";
+
+pub(crate) const SQL_SELECT_DATA_TYPE: &str =
+    "SELECT data_type FROM gpkg_contents WHERE table_name = ?";
 
 pub(crate) const SQL_INSERT_GPKG_CONTENTS: &str = "
 INSERT INTO gpkg_contents
   (table_name, data_type, identifier, description, srs_id)
 VALUES
   (?1, 'features', ?2, '', ?3)
+";
+
+pub(crate) const SQL_INSERT_GPKG_CONTENTS_ATTRIBUTES: &str = "
+INSERT INTO gpkg_contents
+  (table_name, data_type, identifier, description)
+VALUES
+  (?1, 'attributes', ?2, '')
 ";
 
 pub(crate) const SQL_INSERT_GPKG_GEOMETRY_COLUMNS: &str = "
@@ -94,6 +108,37 @@ where
 
     format!(
         r#"SELECT {columns} FROM "{layer_name}" ORDER BY "{primary_key_column}" {limit_clause}"#,
+    )
+}
+
+pub(crate) fn sql_select_attribute_rows<'a, I>(
+    table_name: &'a str,
+    primary_key_column: &'a str,
+    other_columns: I,
+    limit: Option<u32>,
+) -> String
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let joined = other_columns
+        .into_iter()
+        .map(|name| format!(r#""{}""#, name))
+        .collect::<Vec<String>>()
+        .join(", ");
+
+    let limit_clause = match limit {
+        Some(n) => format!("LIMIT {n} OFFSET ?"),
+        None => "".to_string(),
+    };
+
+    let columns = if joined.is_empty() {
+        format!(r#""{primary_key_column}""#)
+    } else {
+        format!(r#""{primary_key_column}", {joined}"#)
+    };
+
+    format!(
+        r#"SELECT {columns} FROM "{table_name}" ORDER BY "{primary_key_column}" {limit_clause}"#,
     )
 }
 

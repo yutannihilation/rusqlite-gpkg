@@ -3,13 +3,27 @@
 <!-- next-header -->
 ## [Unreleased] (ReleaseDate)
 
+### Added
+
+- Support non-spatial attribute tables (`data_type = 'attributes'` in `gpkg_contents`, GeoPackage spec Section 2.4). New types: `GpkgAttributeTable`, `GpkgAttributeRow`. New `Gpkg` methods: `create_attribute_table()`, `get_attribute_table()`, `delete_attribute_table()`, `list_attribute_tables()` (#34).
+- Add `ArrowGpkgAttributeReader` and `ArrowGpkgAttributeWriter` for Arrow integration with attribute tables (feature = `arrow`) (#34).
+
+### Changed
+
+- `list_layers()` now returns only feature layers (`data_type = 'features'`). Previously it returned all `gpkg_contents` rows. Use the new `list_attribute_tables()` for attribute tables (#34).
+- `get_layer()` and `delete_layer()` now return a clear error when called on an attribute table or unsupported data type (e.g., tiles) (#34).
+
 ### Fixed
 
 - Set `PRAGMA application_id` to `0x47504B47` ("GPKG") when creating a new GeoPackage, as required by the spec (#28).
 - Set `PRAGMA user_version` to `10400` (spec version 1.4.0) when creating a new GeoPackage (#28).
 - Register RTree spatial indexes in `gpkg_extensions` so other readers can discover them (#29).
+<<<<<<< feat/attribute-tables
+- `create_layer()` now checks all `gpkg_contents` entries for name collisions, not just feature layers (#34).
+=======
 - Reset the Hybrid VFS's in-memory file map when `Gpkg::open_with_writer` reuses the cached default VFS, so a second call no longer reopens the previous database and fails `initialize_gpkg` with `table gpkg_spatial_ref_sys already exists`.
 - Forward Hybrid VFS writes to the user-supplied writer at the correct offset. SQLite writes pages at arbitrary offsets, but the previous implementation called `write_all` without seeking, so pages were appended in write-order and the resulting file was unusable as a GeoPackage. The writer bound on `Gpkg::open_with_writer`, `HybridVfsBuilder::new`, and `HybridVfsHandle::replace_writer` is now `Write + Seek`.
+>>>>>>> main
 
 ## [v0.0.7] (2026-04-05)
 

@@ -1,7 +1,9 @@
-//! Arrow integration for reading GeoPackage layers as `RecordBatch`es.
+//! Arrow integration for reading and writing GeoPackage data as `RecordBatch`es.
 //!
-//! This module is available behind the `arrow` feature and exposes
-//! [`ArrowGpkgReader`], an iterator that yields Arrow `RecordBatch`es of features.
+//! This module is available behind the `arrow` feature and exposes:
+//!
+//! - [`ArrowGpkgReader`] / [`ArrowGpkgWriter`] for feature layers (with geometry).
+//! - [`ArrowGpkgAttributeReader`][attribute_reader::ArrowGpkgAttributeReader] / [`ArrowGpkgAttributeWriter`][attribute_writer::ArrowGpkgAttributeWriter] for attribute tables (no geometry).
 //!
 //! ## Example
 //!
@@ -48,6 +50,8 @@
 //! }
 //! ```
 
+pub mod attribute_reader;
+pub mod attribute_writer;
 pub mod reader;
 pub mod writer;
 
