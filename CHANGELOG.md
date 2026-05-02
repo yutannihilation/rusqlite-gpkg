@@ -3,6 +3,8 @@
 <!-- next-header -->
 ## [Unreleased] (ReleaseDate)
 
+## [v0.0.8] (2026-05-02)
+
 ### Added
 
 - Support non-spatial attribute tables (`data_type = 'attributes'` in `gpkg_contents`, GeoPackage spec Section 2.4). New types: `GpkgAttributeTable`, `GpkgAttributeRow`. New `Gpkg` methods: `create_attribute_table()`, `get_attribute_table()`, `delete_attribute_table()`, `list_attribute_tables()` (#34).
@@ -58,7 +60,8 @@
 - Define finer-grained `GpkgError` enum variants so callers can handle failure modes more precisely.
 
 <!-- next-url -->
-[Unreleased]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.7...HEAD
+[Unreleased]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.8...HEAD
+[v0.0.8]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.7...v0.0.8
 [v0.0.7]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.6...v0.0.7
 [v0.0.6]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.5...v0.0.6
 [v0.0.5]: https://github.com/yutannihilation/rusqlite-gpkg/compare/v0.0.4...v0.0.5
