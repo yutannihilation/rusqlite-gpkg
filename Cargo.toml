@@ -17,8 +17,8 @@ wkb = "0.9.2"
 wkt = { version = "0.14", optional = true }
 
 # For allow conversions
-arrow-array = { version = "58.1.0", optional = true }
-arrow-schema = { version = "58.1.0", optional = true }
+arrow-array = { version = "59.0.0", optional = true }
+arrow-schema = { version = "59.0.0", optional = true }
 geoarrow-schema = { version = "0.8.0", optional = true }
 geoarrow-array = { version = "0.8.0", optional = true }
 epsg-utils = { version = "0.0.1", optional = true, default-features = false, features = ["projjson-definitions"] }
