@@ -28,7 +28,7 @@ jobs:
       - name: Validate GeoPackage with GDAL
         run: |
           docker run --rm -v "/tmp/test_output.gpkg:/data/test_output.gpkg:ro" \
-            ghcr.io/osgeo/gdal:alpine-normal-3.13.0beta1 \
+            ghcr.io/osgeo/gdal:alpine-normal-3.13.0 \
             gdal driver gpkg validate /data/test_output.gpkg
 
   wasm:
