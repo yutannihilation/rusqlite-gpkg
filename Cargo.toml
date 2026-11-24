@@ -10,7 +10,7 @@ include = ["src/**", "Cargo.toml", "README.md", "CHANGELOG.md"]
 
 [dependencies]
 geo-traits = { version = "0.3.0", default-features = false }
-rusqlite = { version = "0.40.1", features = ["bundled", "functions", "serialize"] }
+rusqlite = { version = "0.43.0", features = ["bundled", "functions"] }
 wkb = "0.9.2"
 
 # For examples
@@ -25,7 +25,7 @@ epsg-utils = { version = "0.0.3", optional = true, default-features = false, fea
 serde_json = { version = "1", optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-sqlite-wasm-rs = "0.5.2"
+sqlite-wasm-rs = { version = "0.6.3", features = ["wasm-bindgen"] }
 
 
 [features]

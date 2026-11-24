@@ -3,6 +3,15 @@
 <!-- next-header -->
 ## [Unreleased] (ReleaseDate)
 
+### Changed
+
+- Update `rusqlite` to 0.43 (and `sqlite-wasm-rs` to 0.6 on wasm targets). `GpkgError::Sql` now wraps `rusqlite::Error` of this version.
+- On wasm targets, `HybridVfsBuilder::register()` and `register_reusable()` now return an error when the VFS name is empty or already registered (a change in `sqlite-wasm-rs` 0.6). Previously, registering the same name again succeeded.
+
+### Removed
+
+- Remove `Gpkg::to_bytes()` and `Gpkg::from_bytes()`, because `rusqlite` now requires `&mut self` for `Connection::serialize()`. On wasm targets, use `Gpkg::open_with_writer()` instead (#57).
+
 ## [v0.0.8] (2026-05-02)
 
 ### Added

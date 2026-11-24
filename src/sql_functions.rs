@@ -93,7 +93,7 @@ fn wkb_from_ctx<'a>(ctx: &'a Context<'a>) -> std::result::Result<Option<Wkb<'a>>
                 .map_err(|err| Error::UserFunctionError(Box::new(err)))?;
             Ok(Some(wkb))
         }
-        _ => Err(Error::InvalidFunctionParameterType(0, Type::Blob)),
+        _ => Err(Error::InvalidParameterType(0, Type::Blob)),
     }
 }
 
