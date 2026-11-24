@@ -37,28 +37,10 @@ Why this demo uses Hybrid VFS:
   internally: it uses Hybrid VFS, registers a default VFS on first use, then
   reuses that registration and replaces the writer on later calls.
 
-Alternative design: memory-only then serialize:
-
-- Create data with `Gpkg::open_in_memory()`.
-- Export bytes with `Gpkg::to_bytes()`.
-- Handle persistence/download in JS.
-
-Tradeoff summary:
-
-- Hybrid VFS route:
-  - Pros: direct streaming path to custom storage target; explicit VFS control.
-  - Cons: more moving parts (custom VFS registration + worker/OPFS integration).
-- Memory-only route:
-  - Pros: simplest integration for many apps.
-  - Cons: peak memory can be larger because output is materialized as a full
-    byte vector before persistence.
-
 Implementation hints for your own app:
 
 1. Keep OPFS sync handles in a Worker (not main thread).
 2. Keep UI and generation separated; pass only small control messages in, and
    transfer `ArrayBuffer` out.
-3. Start with `open_in_memory + to_bytes` for simplicity; move to Hybrid VFS
-   if you need custom write routing or tighter control over storage behavior.
-4. Use small test sizes first, then scale up (100 -> 10k -> 1M) and monitor
+3. Use small test sizes first, then scale up (100 -> 10k -> 1M) and monitor
    elapsed time in the UI.

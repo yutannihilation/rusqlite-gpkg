@@ -36,20 +36,18 @@ You can find some example codes in the bottom of this README.
 The library focuses on simple, explicit flows. You control how layers are created
 and which property columns are present.
 
-### Browser usage (to_bytes / from_bytes)
+### Browser usage
 
-Web environments often cannot access files directly (OPFS can be used by
-`rusqlite`, but this crate does not currently expose a way to enable it). In
-those cases, the recommended workflow is to serialize a GeoPackage to bytes.
+Web environments cannot access files directly. On wasm targets,
+`Gpkg::open_with_writer()` forwards the writes to the GeoPackage file to any
+`std::io::Write + std::io::Seek` you provide (for example, a wrapper around an
+OPFS `FileSystemSyncAccessHandle`). See [`web/`](./web) for a complete example.
 
 ```rs
 use rusqlite_gpkg::Gpkg;
 
-let gpkg = Gpkg::open_in_memory()?;
+let gpkg = Gpkg::open_with_writer("demo.gpkg", opfs_writer)?;
 // ... write layers/features ...
-let bytes = gpkg.to_bytes()?; // store bytes in IndexedDB, send over network, etc.
-
-let restored = Gpkg::from_bytes(&bytes)?;
 # Ok::<(), rusqlite_gpkg::GpkgError>(())
 ```
 

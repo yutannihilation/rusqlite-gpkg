@@ -5,13 +5,10 @@
 //! - This VFS intentionally does not validate filename intent.
 
 use crate::{Gpkg, GpkgError, Result as CrateResult};
-use sqlite_wasm_rs::utils::{
-    OsCallback, RegisterVfsError, SQLiteIoMethods, SQLiteVfs, SQLiteVfsFile, VfsError, VfsFile,
-    VfsResult, VfsStore,
-    ffi::{
-        SQLITE_IOERR, SQLITE_IOERR_DELETE, SQLITE_IOERR_READ, SQLITE_IOERR_WRITE, SQLITE_OK,
-        sqlite3_file, sqlite3_vfs,
-    },
+use sqlite_wasm_rs::WasmOsCallback;
+use sqlite_wasm_rs::vfs::{
+    AccessMode, LockLevel, OpenOptions, OpenRequest, OpenedFile, RegisterVfsError, SQLiteIoMethods,
+    SQLiteVfs, SyncOptions, VfsError, VfsErrorCode, VfsFile, VfsResult, VfsStore, ffi::sqlite3_vfs,
     register_vfs,
 };
 use std::cell::RefCell;
@@ -19,14 +16,15 @@ use std::collections::HashMap;
 use std::io::{Seek, SeekFrom, Write};
 use std::path::Path;
 use std::rc::Rc;
-use std::time::Duration;
 
 trait HybridWriter: Write + Seek {}
 impl<T: Write + Seek> HybridWriter for T {}
 
 type SharedWriter = Rc<RefCell<WriterState>>;
-type SharedFiles = Rc<RefCell<HashMap<String, HybridFile>>>;
-type HybridAppData = RefCell<HybridState>;
+/// File data shared by every open handle of the same name. It becomes `None`
+/// when `HybridVfsHandle::clear_files()` drops the file.
+type SharedFile = Rc<RefCell<Option<Box<dyn FileData>>>>;
+type SharedFiles = Rc<RefCell<HashMap<String, SharedFile>>>;
 
 struct WriterState {
     writer: Box<dyn HybridWriter>,
@@ -107,7 +105,7 @@ impl HybridVfsBuilder {
             files: Rc::new(RefCell::new(HashMap::new())),
             writer: Rc::new(RefCell::new(WriterState::new(self.writer))),
         };
-        register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, RefCell::new(state), default_vfs)
+        register_hybrid_vfs(vfs_name, state, default_vfs)
     }
 
     /// Register a reusable Hybrid VFS and return a handle that can replace writers.
@@ -122,7 +120,7 @@ impl HybridVfsBuilder {
             files: files.clone(),
             writer: writer.clone(),
         };
-        register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, RefCell::new(state), default_vfs)?;
+        register_hybrid_vfs(vfs_name, state, default_vfs)?;
         Ok(HybridVfsHandle {
             vfs_name: vfs_name.to_string(),
             writer,
@@ -157,6 +155,22 @@ impl HybridVfsBuilder {
     }
 }
 
+fn register_hybrid_vfs(
+    vfs_name: &str,
+    state: HybridState,
+    default_vfs: bool,
+) -> Result<*mut sqlite3_vfs, RegisterVfsError> {
+    // SAFETY: `HybridVfsImpl` and `HybridIoMethods` use the default VFS structure
+    // and method table, so their versions, file layout, and app data type
+    // (`HybridState`) agree. The app data is never freed (see `into_raw()` below),
+    // so it outlives every callback. The `Rc`/`RefCell` in `HybridState` assume
+    // SQLite is used from one thread (sqlite-wasm-rs builds it single-threaded).
+    let registration =
+        unsafe { register_vfs::<HybridIoMethods, HybridVfsImpl>(vfs_name, state, default_vfs) }?;
+    // Keep the VFS registered for the lifetime of the process.
+    Ok(registration.into_raw())
+}
+
 impl HybridVfsHandle {
     /// Replace the writer used for main database file writes.
     pub fn replace_writer<W: Write + Seek + 'static>(&self, writer: W) {
@@ -168,10 +182,13 @@ impl HybridVfsHandle {
     }
 
     /// Drop every in-memory file tracked by this VFS so the next `open_gpkg`
-    /// starts from an empty database. Calling this while a `Gpkg` from a prior
-    /// open is still alive will leave that connection with dangling references.
+    /// starts from an empty database. If a `Gpkg` from a prior open is still
+    /// alive, its file handles fail on their next I/O instead of writing to the
+    /// new writer.
     fn clear_files(&self) {
-        self.files.borrow_mut().clear();
+        for (_, file) in self.files.borrow_mut().drain() {
+            *file.borrow_mut() = None;
+        }
     }
 
     /// Open a GeoPackage using this registered Hybrid VFS.
@@ -180,30 +197,43 @@ impl HybridVfsHandle {
     }
 }
 
+fn shared_file(data: impl FileData + 'static) -> SharedFile {
+    Rc::new(RefCell::new(Some(Box::new(data))))
+}
+
+fn offset_to_usize(offset: u64, code: VfsErrorCode) -> VfsResult<usize> {
+    usize::try_from(offset)
+        .map_err(|_| VfsError::new(code, "offset exceeds the address space".into()))
+}
+
+/// The contents of one file.
+trait FileData {
+    /// Copy the bytes available at `offset` into `buf`, zero-fill the rest, and
+    /// return the number of bytes copied.
+    fn read(&self, buf: &mut [u8], offset: u64) -> VfsResult<usize>;
+    fn write(&mut self, buf: &[u8], offset: u64) -> VfsResult<()>;
+    fn truncate(&mut self, size: u64) -> VfsResult<()>;
+    fn flush(&mut self) -> VfsResult<()>;
+    fn size(&self) -> VfsResult<u64>;
+}
+
 // Adapted from sqlite-wasm-rs example code:
 // https://github.com/Spxg/sqlite-wasm-rs/blob/master/examples/implement-a-vfs/src/lib.rs
 #[derive(Default)]
 struct MemFile(Vec<u8>);
 
-impl VfsFile for MemFile {
-    fn read(&self, buf: &mut [u8], offset: usize) -> VfsResult<bool> {
-        let end = offset.saturating_add(buf.len());
-        if self.0.len() <= offset {
-            buf.fill(0);
-            return Ok(false);
-        }
-
-        let read_end = end.min(self.0.len());
-        let read_size = read_end - offset;
-        buf[..read_size].copy_from_slice(&self.0[offset..read_end]);
-        if read_size < buf.len() {
-            buf[read_size..].fill(0);
-            return Ok(false);
-        }
-        Ok(true)
+impl FileData for MemFile {
+    fn read(&self, buf: &mut [u8], offset: u64) -> VfsResult<usize> {
+        let offset = offset_to_usize(offset, VfsErrorCode::IoRead)?;
+        let available = self.0.get(offset..).unwrap_or_default();
+        let read_size = available.len().min(buf.len());
+        buf[..read_size].copy_from_slice(&available[..read_size]);
+        buf[read_size..].fill(0);
+        Ok(read_size)
     }
 
-    fn write(&mut self, buf: &[u8], offset: usize) -> VfsResult<()> {
+    fn write(&mut self, buf: &[u8], offset: u64) -> VfsResult<()> {
+        let offset = offset_to_usize(offset, VfsErrorCode::IoWrite)?;
         let end = offset.saturating_add(buf.len());
         if end > self.0.len() {
             self.0.resize(end, 0);
@@ -212,8 +242,9 @@ impl VfsFile for MemFile {
         Ok(())
     }
 
-    fn truncate(&mut self, size: usize) -> VfsResult<()> {
-        self.0.truncate(size);
+    fn truncate(&mut self, size: u64) -> VfsResult<()> {
+        self.0
+            .truncate(offset_to_usize(size, VfsErrorCode::IoTruncate)?);
         Ok(())
     }
 
@@ -221,113 +252,106 @@ impl VfsFile for MemFile {
         Ok(())
     }
 
-    fn size(&self) -> VfsResult<usize> {
-        Ok(self.0.len())
+    fn size(&self) -> VfsResult<u64> {
+        Ok(self.0.len() as u64)
     }
 }
 
+/// An in-memory file that also forwards every write to the writer.
 struct MainFile {
-    data: Vec<u8>,
+    mem: MemFile,
     writer: SharedWriter,
 }
 
 impl MainFile {
     fn new(writer: SharedWriter) -> Self {
         Self {
-            data: Vec::new(),
+            mem: MemFile::default(),
             writer,
         }
     }
 }
 
-impl VfsFile for MainFile {
-    fn read(&self, buf: &mut [u8], offset: usize) -> VfsResult<bool> {
-        let end = offset.saturating_add(buf.len());
-        if self.data.len() <= offset {
-            buf.fill(0);
-            return Ok(false);
-        }
-
-        let read_end = end.min(self.data.len());
-        let read_size = read_end - offset;
-        buf[..read_size].copy_from_slice(&self.data[offset..read_end]);
-        if read_size < buf.len() {
-            buf[read_size..].fill(0);
-            return Ok(false);
-        }
-        Ok(true)
+impl FileData for MainFile {
+    fn read(&self, buf: &mut [u8], offset: u64) -> VfsResult<usize> {
+        self.mem.read(buf, offset)
     }
 
-    fn write(&mut self, buf: &[u8], offset: usize) -> VfsResult<()> {
-        let end = offset.saturating_add(buf.len());
-        if end > self.data.len() {
-            self.data.resize(end, 0);
-        }
-        self.data[offset..end].copy_from_slice(buf);
+    fn write(&mut self, buf: &[u8], offset: u64) -> VfsResult<()> {
+        self.mem.write(buf, offset)?;
 
         self.writer
             .borrow_mut()
-            .write_at(buf, offset as u64)
-            .map_err(|e| VfsError::new(SQLITE_IOERR_WRITE, e.to_string()))?;
+            .write_at(buf, offset)
+            .map_err(|e| VfsError::new(VfsErrorCode::IoWrite, e.to_string().into()))?;
         Ok(())
     }
 
-    fn truncate(&mut self, size: usize) -> VfsResult<()> {
-        self.data.truncate(size);
-        Ok(())
+    fn truncate(&mut self, size: u64) -> VfsResult<()> {
+        self.mem.truncate(size)
     }
 
     fn flush(&mut self) -> VfsResult<()> {
         self.writer
             .borrow_mut()
             .flush()
-            .map_err(|e| VfsError::new(SQLITE_IOERR, e.to_string()))
+            .map_err(|e| VfsError::new(VfsErrorCode::Io, e.to_string().into()))
     }
 
-    fn size(&self) -> VfsResult<usize> {
-        Ok(self.data.len())
+    fn size(&self) -> VfsResult<u64> {
+        self.mem.size()
     }
 }
 
-enum HybridFile {
-    Main(MainFile),
-    Mem(MemFile),
+/// The handle SQLite holds from `xOpen` until `xClose`.
+struct HybridFileHandle(SharedFile);
+
+impl HybridFileHandle {
+    /// Run `f` on the file data, or fail with `code` if the file was cleared.
+    fn with_data<T>(
+        &self,
+        code: VfsErrorCode,
+        f: impl FnOnce(&mut dyn FileData) -> VfsResult<T>,
+    ) -> VfsResult<T> {
+        match self.0.borrow_mut().as_deref_mut() {
+            Some(data) => f(data),
+            None => Err(VfsError::new(code, "file was removed from the VFS".into())),
+        }
+    }
 }
 
-impl VfsFile for HybridFile {
-    fn read(&self, buf: &mut [u8], offset: usize) -> VfsResult<bool> {
-        match self {
-            HybridFile::Main(file) => file.read(buf, offset),
-            HybridFile::Mem(file) => file.read(buf, offset),
-        }
+impl VfsFile for HybridFileHandle {
+    fn read(&mut self, buf: &mut [u8], offset: u64) -> VfsResult<usize> {
+        self.with_data(VfsErrorCode::IoRead, |data| data.read(buf, offset))
     }
 
-    fn write(&mut self, buf: &[u8], offset: usize) -> VfsResult<()> {
-        match self {
-            HybridFile::Main(file) => file.write(buf, offset),
-            HybridFile::Mem(file) => file.write(buf, offset),
-        }
+    fn write(&mut self, buf: &[u8], offset: u64) -> VfsResult<()> {
+        self.with_data(VfsErrorCode::IoWrite, |data| data.write(buf, offset))
     }
 
-    fn truncate(&mut self, size: usize) -> VfsResult<()> {
-        match self {
-            HybridFile::Main(file) => file.truncate(size),
-            HybridFile::Mem(file) => file.truncate(size),
-        }
+    fn truncate(&mut self, size: u64) -> VfsResult<()> {
+        self.with_data(VfsErrorCode::IoTruncate, |data| data.truncate(size))
     }
 
-    fn flush(&mut self) -> VfsResult<()> {
-        match self {
-            HybridFile::Main(file) => file.flush(),
-            HybridFile::Mem(file) => file.flush(),
-        }
+    fn sync(&mut self, _options: SyncOptions) -> VfsResult<()> {
+        self.with_data(VfsErrorCode::Io, |data| data.flush())
     }
 
-    fn size(&self) -> VfsResult<usize> {
-        match self {
-            HybridFile::Main(file) => file.size(),
-            HybridFile::Mem(file) => file.size(),
-        }
+    fn size(&self) -> VfsResult<u64> {
+        self.with_data(VfsErrorCode::IoStat, |data| data.size())
+    }
+
+    // This VFS does not support file locking.
+    fn lock(&mut self, _level: LockLevel) -> VfsResult<()> {
+        Ok(())
+    }
+
+    fn unlock(&mut self, _level: LockLevel) -> VfsResult<()> {
+        Ok(())
+    }
+
+    fn check_reserved_lock(&self) -> VfsResult<bool> {
+        Ok(true)
     }
 }
 
@@ -342,109 +366,108 @@ fn is_main_sqlite_file(name: &str) -> bool {
 
 struct HybridStore;
 
-impl VfsStore<HybridFile, HybridAppData> for HybridStore {
-    fn add_file(vfs: *mut sqlite3_vfs, file: &str, _flags: i32) -> VfsResult<()> {
-        let app_data = unsafe { Self::app_data(vfs) };
-        let state = app_data.borrow();
-        let item = if is_main_sqlite_file(file) {
-            HybridFile::Main(MainFile::new(state.writer.clone()))
-        } else {
-            HybridFile::Mem(MemFile::default())
+impl VfsStore for HybridStore {
+    type File = HybridFileHandle;
+    type AppData = HybridState;
+
+    fn open_file(
+        state: &HybridState,
+        request: OpenRequest<'_>,
+    ) -> VfsResult<OpenedFile<HybridFileHandle>> {
+        let options = request.options;
+        let file = match request.filename {
+            // An anonymous temporary file is never a part of the output.
+            None => shared_file(MemFile::default()),
+            Some(filename) => {
+                let name = filename.path();
+                let mut files = state.files.borrow_mut();
+                match files.get(name) {
+                    Some(_) if options.exclusive() => {
+                        return Err(VfsError::new(
+                            VfsErrorCode::CantOpen,
+                            format!("file already exists: {name}").into(),
+                        ));
+                    }
+                    Some(file) => file.clone(),
+                    None if options.create() => {
+                        let file = if is_main_sqlite_file(name) {
+                            shared_file(MainFile::new(state.writer.clone()))
+                        } else {
+                            shared_file(MemFile::default())
+                        };
+                        files.insert(name.to_string(), file.clone());
+                        file
+                    }
+                    None => {
+                        return Err(VfsError::new(
+                            VfsErrorCode::CantOpen,
+                            format!("file not found: {name}").into(),
+                        ));
+                    }
+                }
+            }
         };
-        state.files.borrow_mut().insert(file.to_string(), item);
+
+        Ok(OpenedFile {
+            file: HybridFileHandle(file),
+            access: options.access(),
+        })
+    }
+
+    fn close_file(
+        state: &HybridState,
+        name: Option<&str>,
+        file: HybridFileHandle,
+        options: OpenOptions,
+    ) -> VfsResult<()> {
+        let Some(name) = name else {
+            return Ok(());
+        };
+        if options.delete_on_close() {
+            let mut files = state.files.borrow_mut();
+            // Do not delete a replacement created under the same name.
+            if files
+                .get(name)
+                .is_some_and(|current| Rc::ptr_eq(current, &file.0))
+            {
+                files.remove(name);
+            }
+        }
         Ok(())
     }
 
-    fn contains_file(vfs: *mut sqlite3_vfs, file: &str) -> VfsResult<bool> {
-        let app_data = unsafe { Self::app_data(vfs) };
-        let state = app_data.borrow();
-        Ok(state.files.borrow().contains_key(file))
+    fn access(state: &HybridState, name: &str, _mode: AccessMode) -> VfsResult<bool> {
+        Ok(state.files.borrow().contains_key(name))
     }
 
-    fn delete_file(vfs: *mut sqlite3_vfs, file: &str) -> VfsResult<()> {
-        let app_data = unsafe { Self::app_data(vfs) };
-        let state = app_data.borrow();
-        if state.files.borrow_mut().remove(file).is_none() {
+    fn full_pathname(_state: &HybridState, name: &str) -> VfsResult<String> {
+        Ok(name.to_string())
+    }
+
+    fn delete_file(state: &HybridState, name: &str, _sync_dir: bool) -> VfsResult<()> {
+        if state.files.borrow_mut().remove(name).is_none() {
             return Err(VfsError::new(
-                SQLITE_IOERR_DELETE,
-                format!("{file} not found"),
+                VfsErrorCode::IoDelete,
+                format!("{name} not found").into(),
             ));
         }
         Ok(())
-    }
-
-    fn with_file<F: Fn(&HybridFile) -> VfsResult<i32>>(
-        vfs_file: &SQLiteVfsFile,
-        f: F,
-    ) -> VfsResult<i32> {
-        let app_data = unsafe { Self::app_data(vfs_file.vfs) };
-        let state = app_data.borrow();
-        let files = state.files.borrow();
-        let name = unsafe { vfs_file.name() };
-        match files.get(name) {
-            Some(file) => f(file),
-            None => Err(VfsError::new(
-                SQLITE_IOERR_READ,
-                format!("{name} not found"),
-            )),
-        }
-    }
-
-    fn with_file_mut<F: Fn(&mut HybridFile) -> VfsResult<i32>>(
-        vfs_file: &SQLiteVfsFile,
-        f: F,
-    ) -> VfsResult<i32> {
-        let app_data = unsafe { Self::app_data(vfs_file.vfs) };
-        let state = app_data.borrow();
-        let mut files = state.files.borrow_mut();
-        let name = unsafe { vfs_file.name() };
-        match files.get_mut(name) {
-            Some(file) => f(file),
-            None => Err(VfsError::new(
-                SQLITE_IOERR_WRITE,
-                format!("{name} not found"),
-            )),
-        }
     }
 }
 
 struct HybridIoMethods;
 
 impl SQLiteIoMethods for HybridIoMethods {
-    type File = HybridFile;
-    type AppData = HybridAppData;
     type Store = HybridStore;
-
-    const VERSION: ::std::os::raw::c_int = 1;
-
-    unsafe extern "C" fn xCheckReservedLock(
-        _p_file: *mut sqlite3_file,
-        p_res_out: *mut ::std::os::raw::c_int,
-    ) -> ::std::os::raw::c_int {
-        if !p_res_out.is_null() {
-            unsafe {
-                *p_res_out = 1;
-            }
-        }
-        SQLITE_OK
-    }
 }
 
 struct HybridVfsImpl;
 
 impl SQLiteVfs<HybridIoMethods> for HybridVfsImpl {
-    const VERSION: ::std::os::raw::c_int = 1;
+    type Os = WasmOsCallback;
 
-    fn sleep(dur: Duration) {
-        sqlite_wasm_rs::WasmOsCallback::sleep(dur);
-    }
-
-    fn random(buf: &mut [u8]) {
-        sqlite_wasm_rs::WasmOsCallback::random(buf);
-    }
-
-    fn epoch_timestamp_in_ms() -> i64 {
-        sqlite_wasm_rs::WasmOsCallback::epoch_timestamp_in_ms()
+    fn os(_state: &HybridState) -> &Self::Os {
+        &WasmOsCallback
     }
 }
 
@@ -486,9 +509,9 @@ mod tests {
         file.write(&[1, 2, 3], 0).expect("write should succeed");
 
         let mut buf = [9_u8; 5];
-        let complete = file.read(&mut buf, 1).expect("read should succeed");
+        let read_size = file.read(&mut buf, 1).expect("read should succeed");
 
-        assert!(!complete);
+        assert_eq!(read_size, 2);
         assert_eq!(buf, [2, 3, 0, 0, 0]);
     }
 
@@ -499,8 +522,8 @@ mod tests {
         assert_eq!(file.size().expect("size should succeed"), 4);
 
         let mut buf = [0_u8; 4];
-        let complete = file.read(&mut buf, 0).expect("read should succeed");
-        assert!(complete);
+        let read_size = file.read(&mut buf, 0).expect("read should succeed");
+        assert_eq!(read_size, 4);
         assert_eq!(buf, [0, 0, 10, 20]);
 
         file.truncate(3).expect("truncate should succeed");
@@ -517,14 +540,12 @@ mod tests {
             files: files.clone(),
             writer: writer.clone(),
         };
-        state
-            .files
-            .borrow_mut()
-            .insert("main.gpkg".to_string(), HybridFile::Mem(MemFile::default()));
-        state.files.borrow_mut().insert(
-            "main.gpkg-journal".to_string(),
-            HybridFile::Mem(MemFile::default()),
-        );
+        for name in ["main.gpkg", "main.gpkg-journal"] {
+            state
+                .files
+                .borrow_mut()
+                .insert(name.to_string(), shared_file(MemFile::default()));
+        }
 
         let handle = HybridVfsHandle {
             vfs_name: "test".to_string(),
@@ -551,8 +572,8 @@ mod tests {
         file.flush().expect("flush should succeed");
 
         let mut buf = [0_u8; 4];
-        let complete = file.read(&mut buf, 0).expect("read should succeed");
-        assert!(!complete);
+        let read_size = file.read(&mut buf, 0).expect("read should succeed");
+        assert_eq!(read_size, 3);
         assert_eq!(buf, [1, 9, 3, 0]);
         assert_eq!(file.size().expect("size should succeed"), 3);
         assert_eq!(cursor.borrow().get_ref().as_slice(), &[1, 9, 3]);

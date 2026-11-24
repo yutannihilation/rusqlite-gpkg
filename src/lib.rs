@@ -41,16 +41,6 @@
 //! # }
 //! ```
 //!
-//! If you prefer a storage-agnostic flow, use `to_bytes()` / `from_bytes()`:
-//!
-//! ```no_run
-//! use rusqlite_gpkg::Gpkg;
-//! let gpkg = Gpkg::open_in_memory()?;
-//! let bytes = gpkg.to_bytes()?;
-//! let _restored = Gpkg::from_bytes(&bytes)?;
-//! # Ok::<(), rusqlite_gpkg::GpkgError>(())
-//! ```
-//!
 //! ## Gpkg
 //!
 //! `Gpkg` represents the GeoPackage connection and is the entry point for

@@ -452,52 +452,6 @@ impl Gpkg {
         Ok(())
     }
 
-    /// Dump the GeoPackage data to `Vec<u8>`.
-    ///
-    /// This is intended for environments without filesystem access (for example,
-    /// running in a web browser). You can serialize an in-memory GeoPackage and
-    /// move the bytes over the wire or store them in browser storage.
-    ///
-    /// Example:
-    /// ```no_run
-    /// use rusqlite_gpkg::Gpkg;
-    ///
-    /// let gpkg = Gpkg::open_in_memory()?;
-    /// let bytes = gpkg.to_bytes()?;
-    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
-    /// ```
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        let data: &[u8] = &self.conn.serialize("main")?;
-        Ok(data.to_vec())
-    }
-
-    /// Load the GeoPackage data from a dump.
-    ///
-    /// This is intended for environments without filesystem access (for example,
-    /// running in a web browser). Provide the bytes from `Gpkg::to_bytes()` to
-    /// recreate an in-memory GeoPackage.
-    ///
-    /// Example:
-    /// ```no_run
-    /// use rusqlite_gpkg::Gpkg;
-    ///
-    /// let gpkg = Gpkg::open_in_memory()?;
-    /// let bytes = gpkg.to_bytes()?;
-    /// let restored = Gpkg::from_bytes(&bytes)?;
-    /// # Ok::<(), rusqlite_gpkg::GpkgError>(())
-    /// ```
-    pub fn from_bytes<D: AsRef<[u8]>>(data: D) -> Result<Self> {
-        let mut conn = rusqlite::Connection::open_in_memory()?;
-
-        let data_ref = data.as_ref();
-        let reader = std::io::Cursor::new(data_ref);
-        conn.deserialize_read_exact("main", reader, data_ref.len(), false)?;
-        Ok(Self {
-            conn: Rc::new(conn),
-            read_only: false,
-        })
-    }
-
     /// Load an attribute table definition by name.
     ///
     /// Example:
@@ -705,9 +659,7 @@ impl Gpkg {
                 continue;
             }
             if column_type == crate::types::ColumnType::Geometry {
-                return Err(GpkgError::GeometryColumnInAttributeTable {
-                    column: name,
-                });
+                return Err(GpkgError::GeometryColumnInAttributeTable { column: name });
             }
             other_columns.push(ColumnSpec { name, column_type });
         }
@@ -824,12 +776,7 @@ impl Gpkg {
 mod tests {
     use super::Gpkg;
     use crate::error::GpkgError;
-    use crate::params;
-    use crate::types::{ColumnSpec, ColumnType};
-    use geo_types::Point;
-    use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    use wkb::reader::{Dimension, GeometryType};
+    use crate::types::ColumnSpec;
 
     #[test]
     fn create_layer_requires_existing_srs() {
@@ -860,168 +807,5 @@ mod tests {
             .delete_layer("points")
             .expect_err("read-only should fail");
         assert!(matches!(err, GpkgError::ReadOnly));
-    }
-
-    #[test]
-    fn dump_roundtrips_in_memory_gpkg() -> Result<(), GpkgError> {
-        let gpkg = Gpkg::open_in_memory()?;
-
-        let columns = vec![
-            ColumnSpec {
-                name: "name".to_string(),
-                column_type: ColumnType::Varchar,
-            },
-            ColumnSpec {
-                name: "value".to_string(),
-                column_type: ColumnType::Integer,
-            },
-        ];
-        let layer = gpkg.create_layer(
-            "points",
-            "geom",
-            GeometryType::Point,
-            Dimension::Xy,
-            4326,
-            &columns,
-        )?;
-
-        let name_a = "alpha".to_string();
-        let value_a = 7_i64;
-        layer.insert(Point::new(1.0, 2.0), params![name_a, value_a])?;
-        let name_b = "beta".to_string();
-        let value_b = 9_i64;
-        layer.insert(Point::new(-3.0, 4.5), params![name_b, value_b])?;
-
-        let dump = gpkg.to_bytes()?;
-        let mut path = std::env::temp_dir();
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        path.push(format!("rusqlite_gpkg_dump_{nanos}.gpkg"));
-        fs::write(&path, dump).unwrap();
-
-        let reopened = Gpkg::open_read_only(&path)?;
-        let layers = reopened.list_layers()?;
-        assert_eq!(layers, vec!["points".to_string()]);
-
-        let reopened_layer = reopened.get_layer("points")?;
-        let features = reopened_layer.features()?;
-        assert_eq!(features.len(), 2);
-
-        assert_eq!(features[0].id(), 1);
-        let name: String = features[0]
-            .property("name")
-            .ok_or_else(|| GpkgError::MissingProperty {
-                property: "name".to_string(),
-            })?
-            .try_into()?;
-        assert_eq!(name, "alpha");
-        let value: i64 = features[0]
-            .property("value")
-            .ok_or_else(|| GpkgError::MissingProperty {
-                property: "value".to_string(),
-            })?
-            .try_into()?;
-        assert_eq!(value, 7);
-        assert_eq!(features[0].geometry()?.geometry_type(), GeometryType::Point);
-
-        assert_eq!(features[1].id(), 2);
-        let name: String = features[1]
-            .property("name")
-            .ok_or_else(|| GpkgError::MissingProperty {
-                property: "name".to_string(),
-            })?
-            .try_into()?;
-        assert_eq!(name, "beta");
-        let value: i64 = features[1]
-            .property("value")
-            .ok_or_else(|| GpkgError::MissingProperty {
-                property: "value".to_string(),
-            })?
-            .try_into()?;
-        assert_eq!(value, 9);
-        assert_eq!(features[1].geometry()?.geometry_type(), GeometryType::Point);
-
-        let _ = fs::remove_file(&path);
-        Ok(())
-    }
-
-    #[test]
-    fn dump_roundtrips_in_memory_gpkg_from_bytes() -> Result<(), GpkgError> {
-        let gpkg = Gpkg::open_in_memory()?;
-
-        let columns = vec![
-            ColumnSpec {
-                name: "name".to_string(),
-                column_type: ColumnType::Varchar,
-            },
-            ColumnSpec {
-                name: "value".to_string(),
-                column_type: ColumnType::Integer,
-            },
-        ];
-        let layer = gpkg.create_layer(
-            "points",
-            "geom",
-            GeometryType::Point,
-            Dimension::Xy,
-            4326,
-            &columns,
-        )?;
-
-        let name_a = "alpha".to_string();
-        let value_a = 7_i64;
-        layer.insert(Point::new(1.0, 2.0), params![name_a, value_a])?;
-        let name_b = "beta".to_string();
-        let value_b = 9_i64;
-        layer.insert(Point::new(-3.0, 4.5), params![name_b, value_b])?;
-
-        let dump = gpkg.to_bytes()?;
-
-        let restored = Gpkg::from_bytes(&dump)?;
-
-        let layers = restored.list_layers()?;
-        assert_eq!(layers, vec!["points".to_string()]);
-
-        let restored_layer = restored.get_layer("points")?;
-        let features = restored_layer.features()?;
-        assert_eq!(features.len(), 2);
-
-        assert_eq!(features[0].id(), 1);
-        let name: String = features[0]
-            .property("name")
-            .ok_or_else(|| GpkgError::MissingProperty {
-                property: "name".to_string(),
-            })?
-            .try_into()?;
-        assert_eq!(name, "alpha");
-        let value: i64 = features[0]
-            .property("value")
-            .ok_or_else(|| GpkgError::MissingProperty {
-                property: "value".to_string(),
-            })?
-            .try_into()?;
-        assert_eq!(value, 7);
-        assert_eq!(features[0].geometry()?.geometry_type(), GeometryType::Point);
-
-        assert_eq!(features[1].id(), 2);
-        let name: String = features[1]
-            .property("name")
-            .ok_or_else(|| GpkgError::MissingProperty {
-                property: "name".to_string(),
-            })?
-            .try_into()?;
-        assert_eq!(name, "beta");
-        let value: i64 = features[1]
-            .property("value")
-            .ok_or_else(|| GpkgError::MissingProperty {
-                property: "value".to_string(),
-            })?
-            .try_into()?;
-        assert_eq!(value, 9);
-        assert_eq!(features[1].geometry()?.geometry_type(), GeometryType::Point);
-
-        Ok(())
     }
 }
